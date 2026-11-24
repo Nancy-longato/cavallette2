@@ -9,6 +9,7 @@ const RUOLI: { valore: Ruolo; nome: string; descrizione: string }[] = [
   { valore: 'ufficio', nome: 'Ufficio (Nicole)', descrizione: 'Carica arrivi e import Smartsheet, vede tutto' },
   { valore: 'amministrazione', nome: 'Amministrazione', descrizione: 'Vede tutto, può correggere a mano le cavallette' },
   { valore: 'logistica', nome: 'Logistica / Peso', descrizione: 'Vede tutto, riceve le segnalazioni, non modifica' },
+  { valore: 'produzione', nome: 'Produzione', descrizione: 'Solo la schermata di imballo: commessa e cavallette usate' },
   { valore: 'magazziniere', nome: 'Magazziniere', descrizione: 'Solo la schermata di restituzione' },
   { valore: 'nessuno', nome: 'Nessun accesso', descrizione: 'Account creato ma non ancora abilitato' },
 ];

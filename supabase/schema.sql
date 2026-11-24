@@ -6,7 +6,7 @@
 
 -- ---------- RUOLI ----------------------------------------------------
 do $$ begin
-  create type public.ruolo_app as enum ('admin', 'ufficio', 'logistica', 'amministrazione', 'magazziniere', 'nessuno');
+  create type public.ruolo_app as enum ('admin', 'ufficio', 'logistica', 'amministrazione', 'magazziniere', 'produzione', 'nessuno');
 exception when duplicate_object then null; end $$;
 
 create table if not exists public.profili (
@@ -297,6 +297,353 @@ end $$;
 
 revoke all on function public.restituisci_cavallette(text, uuid[]) from public, anon;
 grant execute on function public.restituisci_cavallette(text, uuid[]) to authenticated;
+
+-- =====================================================================
+-- VERSIONE 2: giro di raccolta, consegne, produzione, registro movimenti
+-- =====================================================================
+
+-- ---------- NUOVE COLONNE --------------------------------------------
+do $$ begin
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'cavallette' and column_name = 'stato_dal') then
+    alter table public.cavallette add column stato_dal date;
+    -- per le cavallette già presenti: giorno dell'ultimo movimento registrato (o di creazione)
+    update public.cavallette c set stato_dal = coalesce(
+      (select (max(e.creato_il) at time zone 'Europe/Rome')::date from public.eventi e where e.cavalletta_id = c.id),
+      (c.creata_il at time zone 'Europe/Rome')::date);
+    alter table public.cavallette alter column stato_dal set not null;
+    alter table public.cavallette alter column stato_dal set default (timezone('Europe/Rome', now()))::date;
+  end if;
+end $$;
+alter table public.cavallette add column if not exists in_giro_il timestamptz;   -- giro di raccolta programmato
+alter table public.cavallette add column if not exists ddt_consegna text;        -- DDT dell'amministrazione alla consegna
+
+insert into public.impostazioni (chiave, valore) values ('ore_giro', '6') on conflict (chiave) do nothing;
+
+-- "stato_dal" = da quando la cavalletta è nello step attuale; chi torna in piazzale esce dal giro
+create or replace function public.tocca_aggiornata() returns trigger language plpgsql as $$
+begin
+  new.aggiornata_il = now();
+  if new.luogo = 'piazzale' then new.in_giro_il = null; end if;
+  if (new.stato, new.luogo, new.in_giro_il is not null) is distinct from (old.stato, old.luogo, old.in_giro_il is not null) then
+    new.stato_dal = (timezone('Europe/Rome', now()))::date;
+  end if;
+  return new;
+end $$;
+
+-- ---------- COMMESSE (dati presi da Smartsheet) ----------------------
+create table if not exists public.commesse (
+  commessa      text primary key,
+  cliente       text,
+  indirizzo     text,
+  aggiornata_il timestamptz not null default now()
+);
+alter table public.commesse enable row level security;
+drop policy if exists commesse_select on public.commesse;
+create policy commesse_select on public.commesse for select to authenticated
+  using (public.ruolo_corrente() in ('admin', 'ufficio', 'logistica', 'amministrazione', 'produzione'));
+drop policy if exists commesse_write on public.commesse;
+create policy commesse_write on public.commesse for all to authenticated
+  using (public.ruolo_corrente() in ('admin', 'ufficio')) with check (public.ruolo_corrente() in ('admin', 'ufficio'));
+
+-- la produzione vede solo le cavallette in piazzale con vetri o vuote (nessun dato cliente)
+drop policy if exists cavallette_select_produzione on public.cavallette;
+create policy cavallette_select_produzione on public.cavallette for select to authenticated
+  using (public.ruolo_corrente() = 'produzione' and not restituita and luogo = 'piazzale' and stato in ('piena_vetri', 'vuota'));
+
+-- ---------- REGISTRO MOVIMENTI (non modificabile) --------------------
+create table if not exists public.registro (
+  progressivo   bigint primary key,            -- numero progressivo senza buchi
+  creato_il     timestamptz not null default now(),
+  data_mov      date not null default (timezone('Europe/Rome', now()))::date,
+  tipo          text not null,
+  cavalletta_id uuid,                          -- niente vincolo: il registro resta anche se la cavalletta viene eliminata
+  numero        text not null,
+  vetreria      text,
+  da_luogo      text, da_stato text,
+  a_luogo       text, a_stato  text,
+  commessa      text, cliente text, ddt text,
+  utente        uuid, utente_email text, utente_ruolo text,
+  manuale       boolean not null default false, -- true = correzione fatta a mano dall'amministratore
+  dettaglio     jsonb not null default '{}'::jsonb,
+  hash_prec     text,
+  hash          text
+);
+create index if not exists registro_data on public.registro (data_mov desc, progressivo desc);
+create index if not exists registro_numero on public.registro (numero);
+create index if not exists registro_cav on public.registro (cavalletta_id);
+
+-- numero progressivo + catena di controllo (ogni riga contiene l'impronta della precedente)
+create or replace function public.registro_prepara() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare v_prec text; v_n bigint;
+begin
+  perform pg_advisory_xact_lock(7243001);
+  select progressivo, hash into v_n, v_prec from registro order by progressivo desc limit 1;
+  new.progressivo := coalesce(v_n, 0) + 1;
+  new.hash_prec := coalesce(v_prec, '');
+  new.hash := encode(sha256(convert_to(concat_ws('|', new.hash_prec, new.progressivo, new.creato_il, new.data_mov, new.tipo, new.numero,
+      coalesce(new.commessa, ''), coalesce(new.ddt, ''), coalesce(new.a_luogo, ''), coalesce(new.a_stato, ''), coalesce(new.utente::text, ''), new.manuale), 'UTF8')), 'hex');
+  return new;
+end $$;
+drop trigger if exists registro_prepara on public.registro;
+create trigger registro_prepara before insert on public.registro for each row execute function public.registro_prepara();
+
+create or replace function public.registro_blocca() returns trigger language plpgsql as $$
+begin
+  raise exception 'Il registro movimenti non è modificabile: per correggere un errore si aggiunge un nuovo movimento.';
+end $$;
+drop trigger if exists registro_no_modifiche on public.registro;
+create trigger registro_no_modifiche before update or delete on public.registro for each row execute function public.registro_blocca();
+drop trigger if exists registro_no_svuota on public.registro;
+create trigger registro_no_svuota before truncate on public.registro for each statement execute function public.registro_blocca();
+
+alter table public.registro enable row level security;
+revoke all on public.registro from anon, authenticated;
+grant select on public.registro to authenticated;
+drop policy if exists registro_select on public.registro;
+create policy registro_select on public.registro for select to authenticated
+  using (public.ruolo_corrente() in ('admin', 'ufficio', 'logistica', 'amministrazione'));
+
+-- Ogni cambiamento di una cavalletta finisce nel registro, comunque avvenga (import, schermate, correzioni).
+create or replace function public.registra_movimento() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  v_orig  text := current_setting('app.origine', true);
+  v_mot   text := current_setting('app.motivo', true);
+  v_tipi  text[] := '{}';
+  v_tipo  text;
+  v_man   boolean := false;
+  v_cambi jsonb := '{}'::jsonb;
+  v_email text;
+  v_ruolo text;
+  r       public.cavallette;
+begin
+  select email, ruolo::text into v_email, v_ruolo from profili where id = auth.uid();
+  if v_orig = 'sistema' then v_email := 'sistema'; v_ruolo := 'sistema'; end if;
+
+  if tg_op = 'INSERT' then
+    v_tipi := array[case when new.vetreria = 'L' then 'carico_interna' else 'carico' end];
+    r := new;
+  elsif tg_op = 'DELETE' then
+    v_tipi := array['eliminazione']; v_man := true; r := old;
+  else
+    r := new;
+    select coalesce(jsonb_object_agg(o.key, jsonb_build_object('da', o.value, 'a', n.value)), '{}'::jsonb) into v_cambi
+      from jsonb_each(to_jsonb(old)) o join jsonb_each(to_jsonb(new)) n on n.key = o.key
+     where o.value is distinct from n.value and o.key not in ('aggiornata_il', 'stato_dal');
+    if v_cambi = '{}'::jsonb then return null; end if;
+    if v_orig = 'correzione' then
+      v_tipi := array['correzione_manuale']; v_man := true;
+    elsif new.restituita and not old.restituita then
+      v_tipi := array['restituzione'];
+    else
+      if old.stato <> 'piena_serramenti' and new.stato = 'piena_serramenti' then v_tipi := array_append(v_tipi, 'imballata'); end if;
+      if old.luogo = 'piazzale' and new.luogo = 'cliente' then v_tipi := array_append(v_tipi, 'consegna'); end if;
+      if old.in_giro_il is null and new.in_giro_il is not null then v_tipi := array_append(v_tipi, 'giro_programmato'); end if;
+      if old.in_giro_il is not null and new.in_giro_il is null and new.luogo = 'cliente' then v_tipi := array_append(v_tipi, 'giro_annullato'); end if;
+      if old.luogo = 'cliente' and new.luogo = 'piazzale' then v_tipi := array_append(v_tipi, 'rientro'); end if;
+      if old.stato = 'piena_vetri' and new.stato = 'vuota' and new.luogo = old.luogo then v_tipi := array_append(v_tipi, 'non_usata'); end if;
+      if cardinality(v_tipi) = 0 then
+        v_tipi := array['modifica'];
+      end if;
+    end if;
+  end if;
+
+  foreach v_tipo in array v_tipi loop
+    insert into registro (tipo, cavalletta_id, numero, vetreria, da_luogo, da_stato, a_luogo, a_stato, commessa, cliente, ddt,
+                          utente, utente_email, utente_ruolo, manuale, dettaglio)
+    values (
+      v_tipo, r.id, r.numero, r.vetreria,
+      case when tg_op = 'INSERT' then null else old.luogo end, case when tg_op = 'INSERT' then null else old.stato end,
+      case when tg_op = 'DELETE' then null else r.luogo end, case when tg_op = 'DELETE' then null else r.stato end,
+      coalesce(r.commessa, case when tg_op = 'UPDATE' then old.commessa end),
+      coalesce(r.cliente, case when tg_op = 'UPDATE' then old.cliente end),
+      case when v_tipo in ('carico', 'carico_interna') then r.ddt_arrivo when v_tipo = 'consegna' then r.ddt_consegna else null end,
+      case when v_orig = 'sistema' then null else auth.uid() end, v_email, v_ruolo, v_man,
+      jsonb_strip_nulls(jsonb_build_object(
+        'cambi', case when tg_op = 'UPDATE' and v_tipo in ('correzione_manuale', 'modifica') then v_cambi else null end,
+        'motivo', nullif(v_mot, ''),
+        'restituzione_id', case when v_tipo = 'restituzione' then r.restituzione_id else null end,
+        'contenuto', case when v_tipo = 'carico' then r.contenuto else null end,
+        'origine', nullif(v_orig, '')))
+    );
+  end loop;
+  return null;
+end $$;
+drop trigger if exists cavallette_registro on public.cavallette;
+create trigger cavallette_registro after insert or update or delete on public.cavallette
+  for each row execute function public.registra_movimento();
+
+-- Storico già esistente (da prima del registro): si ricostruisce una volta sola dagli eventi
+do $$ begin
+  if not exists (select 1 from public.registro) then
+    perform set_config('app.origine', 'migrazione', true);
+    insert into public.registro (tipo, data_mov, creato_il, cavalletta_id, numero, vetreria, commessa, cliente, ddt, utente, manuale, dettaglio)
+    select case e.tipo when 'arrivata' then 'carico' when 'interna' then 'carico_interna' when 'consegnata' then 'consegna'
+                       when 'rientrata' then 'rientro' when 'restituita' then 'restituzione' when 'correzione' then 'correzione_manuale' else e.tipo end,
+           (e.creato_il at time zone 'Europe/Rome')::date, e.creato_il, c.id, c.numero, c.vetreria,
+           e.dettaglio ->> 'commessa', e.dettaglio ->> 'cliente', e.dettaglio ->> 'ddt', e.utente, e.tipo = 'correzione',
+           jsonb_build_object('origine', 'migrazione')
+      from public.eventi e join public.cavallette c on c.id = e.cavalletta_id
+     order by e.creato_il, e.id;
+  end if;
+end $$;
+
+-- ---------- GIRO DI RACCOLTA -----------------------------------------
+create or replace function public.programma_giro(p_ids uuid[]) returns int
+language plpgsql security definer set search_path = public as $$
+declare v_ids uuid[]; v_ok int;
+begin
+  if public.ruolo_corrente() not in ('admin', 'ufficio', 'logistica') then raise exception 'Non autorizzato'; end if;
+  select coalesce(array_agg(distinct x), '{}') into v_ids from unnest(p_ids) as x;
+  if cardinality(v_ids) = 0 then raise exception 'Nessuna cavalletta selezionata'; end if;
+  select count(*) into v_ok from cavallette where id = any (v_ids) and not restituita and luogo = 'cliente' and in_giro_il is null;
+  if v_ok <> cardinality(v_ids) then raise exception 'Alcune cavallette non sono dal cliente oppure sono già in un giro di raccolta'; end if;
+  update cavallette set in_giro_il = now() where id = any (v_ids);
+  insert into eventi (cavalletta_id, tipo, dettaglio, utente)
+  select id, 'giro_programmato', jsonb_build_object('commessa', commessa, 'cliente', cliente), auth.uid() from cavallette where id = any (v_ids);
+  return cardinality(v_ids);
+end $$;
+
+create or replace function public.annulla_giro(p_ids uuid[]) returns int
+language plpgsql security definer set search_path = public as $$
+declare v_ids uuid[]; v_ok int;
+begin
+  if public.ruolo_corrente() not in ('admin', 'ufficio', 'logistica') then raise exception 'Non autorizzato'; end if;
+  select coalesce(array_agg(distinct x), '{}') into v_ids from unnest(p_ids) as x;
+  if cardinality(v_ids) = 0 then raise exception 'Nessuna cavalletta selezionata'; end if;
+  select count(*) into v_ok from cavallette where id = any (v_ids) and luogo = 'cliente' and in_giro_il is not null;
+  if v_ok <> cardinality(v_ids) then raise exception 'Alcune cavallette non sono più in un giro di raccolta (forse sono già rientrate)'; end if;
+  update cavallette set in_giro_il = null where id = any (v_ids);
+  insert into eventi (cavalletta_id, tipo, dettaglio, utente)
+  select id, 'giro_annullato', jsonb_build_object('commessa', commessa, 'cliente', cliente), auth.uid() from cavallette where id = any (v_ids);
+  return cardinality(v_ids);
+end $$;
+
+-- Passate le ore del giro (impostazione "ore_giro", 6) le cavallette tornano vuote in piazzale.
+create or replace function public.chiudi_giri_scaduti() returns int
+language plpgsql security definer set search_path = public as $$
+declare v_ore int; v_ids uuid[]; v_oggi date := (timezone('Europe/Rome', now()))::date;
+begin
+  if auth.uid() is not null and public.ruolo_corrente() = 'nessuno' then raise exception 'Non autorizzato'; end if;
+  select coalesce((select valore::int from impostazioni where chiave = 'ore_giro' and valore ~ '^[0-9]+$'), 6) into v_ore;
+  select coalesce(array_agg(id), '{}') into v_ids from cavallette
+   where in_giro_il is not null and not restituita and luogo = 'cliente' and in_giro_il <= now() - make_interval(hours => v_ore);
+  if cardinality(v_ids) = 0 then return 0; end if;
+  perform set_config('app.origine', 'sistema', true);
+  update cicli ci set fase = 3, data_rientro = coalesce(ci.data_rientro, v_oggi)
+    from cavallette c where c.id = any (v_ids) and ci.cavalletta_id = c.id and ci.commessa = c.commessa and ci.fase < 3;
+  insert into eventi (cavalletta_id, tipo, dettaglio, utente)
+  select id, 'rientrata', jsonb_build_object('commessa', commessa, 'cliente', cliente, 'fonte', 'giro di raccolta'), null from cavallette where id = any (v_ids);
+  update cavallette set stato = 'vuota', luogo = 'piazzale', contenuto = null, commessa = null, cliente = null, indirizzo = null,
+         data_uscita = null, data_consegna = null, ddt_consegna = null, in_giro_il = null
+   where id = any (v_ids);
+  return cardinality(v_ids);
+end $$;
+
+-- ---------- CONSEGNA AL CLIENTE (con DDT dell'amministrazione) -------
+create or replace function public.consegna_cavallette(p_commessa text, p_ddt text, p_ids uuid[]) returns int
+language plpgsql security definer set search_path = public as $$
+declare v_ids uuid[]; v_ok int; v_oggi date := (timezone('Europe/Rome', now()))::date;
+begin
+  if public.ruolo_corrente() not in ('admin', 'ufficio', 'logistica') then raise exception 'Non autorizzato'; end if;
+  if coalesce(trim(p_ddt), '') = '' then raise exception 'Inserisci il DDT dell''amministrazione'; end if;
+  select coalesce(array_agg(distinct x), '{}') into v_ids from unnest(p_ids) as x;
+  if cardinality(v_ids) = 0 then raise exception 'Nessuna cavalletta selezionata'; end if;
+  select count(*) into v_ok from cavallette
+   where id = any (v_ids) and not restituita and luogo = 'piazzale' and stato = 'piena_serramenti' and commessa = p_commessa;
+  if v_ok <> cardinality(v_ids) then raise exception 'Alcune cavallette non sono più in piazzale con i serramenti di questa commessa'; end if;
+  insert into cicli (cavalletta_id, commessa, fase, cliente, indirizzo, data_uscita, data_consegna)
+  select id, commessa, 2, cliente, indirizzo, v_oggi, v_oggi from cavallette where id = any (v_ids)
+  on conflict (cavalletta_id, commessa) do update
+    set fase = greatest(cicli.fase, 2), data_uscita = coalesce(cicli.data_uscita, excluded.data_uscita), data_consegna = coalesce(cicli.data_consegna, excluded.data_consegna);
+  insert into eventi (cavalletta_id, tipo, dettaglio, utente)
+  select id, 'consegnata', jsonb_build_object('commessa', commessa, 'cliente', cliente, 'ddt', trim(p_ddt), 'fonte', 'consegna'), auth.uid()
+    from cavallette where id = any (v_ids);
+  update cavallette set luogo = 'cliente', data_consegna = v_oggi, data_uscita = v_oggi, ddt_consegna = trim(p_ddt) where id = any (v_ids);
+  return cardinality(v_ids);
+end $$;
+
+-- ---------- PRODUZIONE: imballo di una commessa ----------------------
+create or replace function public.imballa_cavallette(p_commessa text, p_cliente text, p_indirizzo text, p_numeri text[]) returns int
+language plpgsql security definer set search_path = public as $$
+declare v_num text[]; v_ids uuid[]; v_mancano text[]; v_cl text := nullif(trim(p_cliente), ''); v_ind text := nullif(trim(p_indirizzo), '');
+begin
+  if public.ruolo_corrente() not in ('admin', 'ufficio', 'produzione') then raise exception 'Non autorizzato'; end if;
+  if coalesce(trim(p_commessa), '') = '' then raise exception 'Inserisci il numero di commessa'; end if;
+  select coalesce(array_agg(distinct x), '{}') into v_num from unnest(p_numeri) as x;
+  if cardinality(v_num) = 0 then raise exception 'Nessuna cavalletta selezionata'; end if;
+  select coalesce(array_agg(id), '{}') into v_ids from cavallette
+   where numero = any (v_num) and not restituita and luogo = 'piazzale' and stato in ('piena_vetri', 'vuota');
+  if cardinality(v_ids) <> cardinality(v_num) then
+    select array_agg(n) into v_mancano from unnest(v_num) n
+     where n not in (select numero from cavallette where id = any (v_ids));
+    raise exception 'Cavallette non trovate o non disponibili in piazzale: %', array_to_string(v_mancano, ', ');
+  end if;
+  update cavallette set stato = 'piena_serramenti', commessa = trim(p_commessa), cliente = v_cl, indirizzo = v_ind, contenuto = null
+   where id = any (v_ids);
+  insert into cicli (cavalletta_id, commessa, fase, cliente, indirizzo)
+  select id, trim(p_commessa), 1, v_cl, v_ind from cavallette where id = any (v_ids)
+  on conflict (cavalletta_id, commessa) do nothing;
+  insert into eventi (cavalletta_id, tipo, dettaglio, utente)
+  select id, 'imballata', jsonb_build_object('commessa', trim(p_commessa), 'cliente', v_cl, 'fonte', 'produzione'), auth.uid()
+    from cavallette where id = any (v_ids);
+  if v_cl is not null or v_ind is not null then
+    insert into commesse (commessa, cliente, indirizzo) values (trim(p_commessa), v_cl, v_ind)
+    on conflict (commessa) do update set cliente = coalesce(excluded.cliente, commesse.cliente),
+      indirizzo = coalesce(excluded.indirizzo, commesse.indirizzo), aggiornata_il = now();
+  end if;
+  return cardinality(v_ids);
+end $$;
+
+-- ---------- CORREZIONI MANUALI (finiscono nel registro come tali) ----
+create or replace function public.correggi_cavalletta(p_id uuid, p_patch jsonb, p_motivo text default null) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if public.ruolo_corrente() not in ('admin', 'ufficio', 'amministrazione') then raise exception 'Non autorizzato'; end if;
+  perform set_config('app.origine', 'correzione', true);
+  perform set_config('app.motivo', coalesce(p_motivo, ''), true);
+  update cavallette c set
+    luogo         = case when p_patch ? 'luogo' then p_patch ->> 'luogo' else c.luogo end,
+    stato         = case when p_patch ? 'stato' then p_patch ->> 'stato' else c.stato end,
+    commessa      = case when p_patch ? 'commessa' then nullif(p_patch ->> 'commessa', '') else c.commessa end,
+    cliente       = case when p_patch ? 'cliente' then nullif(p_patch ->> 'cliente', '') else c.cliente end,
+    indirizzo     = case when p_patch ? 'indirizzo' then nullif(p_patch ->> 'indirizzo', '') else c.indirizzo end,
+    contenuto     = case when p_patch ? 'contenuto' then nullif(p_patch ->> 'contenuto', '') else c.contenuto end,
+    note          = case when p_patch ? 'note' then nullif(p_patch ->> 'note', '') else c.note end,
+    ddt_consegna  = case when p_patch ? 'ddt_consegna' then nullif(p_patch ->> 'ddt_consegna', '') else c.ddt_consegna end,
+    data_consegna = case when p_patch ? 'data_consegna' then nullif(p_patch ->> 'data_consegna', '')::date else c.data_consegna end,
+    data_uscita   = case when p_patch ? 'data_uscita' then nullif(p_patch ->> 'data_uscita', '')::date else c.data_uscita end
+  where c.id = p_id;
+  if not found then raise exception 'Cavalletta non trovata'; end if;
+end $$;
+
+create or replace function public.elimina_cavalletta(p_id uuid, p_motivo text default null) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if public.ruolo_corrente() <> 'admin' then raise exception 'Non autorizzato'; end if;
+  perform set_config('app.origine', 'correzione', true);
+  perform set_config('app.motivo', coalesce(p_motivo, ''), true);
+  delete from cavallette where id = p_id;
+  if not found then raise exception 'Cavalletta non trovata'; end if;
+end $$;
+
+revoke all on function public.programma_giro(uuid[]), public.annulla_giro(uuid[]), public.chiudi_giri_scaduti(),
+  public.consegna_cavallette(text, text, uuid[]), public.imballa_cavallette(text, text, text, text[]),
+  public.correggi_cavalletta(uuid, jsonb, text), public.elimina_cavalletta(uuid, text) from public, anon;
+grant execute on function public.programma_giro(uuid[]), public.annulla_giro(uuid[]), public.chiudi_giri_scaduti(),
+  public.consegna_cavallette(text, text, uuid[]), public.imballa_cavallette(text, text, text, text[]),
+  public.correggi_cavalletta(uuid, jsonb, text), public.elimina_cavalletta(uuid, text) to authenticated;
+
+-- Controllo automatico ogni 10 minuti (se l'estensione pg_cron è disponibile).
+-- In ogni caso l'app chiude i giri scaduti ogni volta che qualcuno la apre o la aggiorna.
+do $$ begin
+  create extension if not exists pg_cron;
+  perform cron.unschedule(jobid) from cron.job where jobname = 'chiudi-giri-scaduti';
+  perform cron.schedule('chiudi-giri-scaduti', '*/10 * * * *', 'select public.chiudi_giri_scaduti()');
+exception when others then
+  raise notice 'pg_cron non disponibile: i giri vengono chiusi quando qualcuno apre l''app (%)', sqlerrm;
+end $$;
 
 -- ---------- PRIMO ADMIN ----------------------------------------------
 -- Dopo aver creato il tuo utente in Authentication > Users, esegui (con la tua email):

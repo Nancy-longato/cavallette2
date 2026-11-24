@@ -2,8 +2,8 @@
 // qui non si decide chi può fare cosa, si chiede e basta.
 
 import { supabase } from './supabase.ts';
-import type { Anomalia, Cavalletta, Ciclo, Evento, Profilo, Restituzione, Ruolo, Vetreria } from './types.ts';
-import type { Piano } from './smartsheet.ts';
+import type { Anomalia, Cavalletta, Ciclo, Commessa, Evento, MovimentoRegistro, Profilo, Restituzione, Ruolo, Vetreria } from './types.ts';
+import type { Piano, RigaSmartsheet } from './smartsheet.ts';
 import { oggiRoma } from './dates.ts';
 
 /** Come ok(), ma segnala se la scrittura non ha toccato nessuna riga (le regole di accesso lo fanno in silenzio). */
@@ -43,11 +43,16 @@ export async function caricaCicli(): Promise<Ciclo[]> {
   return leggiTutto<Ciclo>((da, a) => supabase.from('cicli').select('*').order('creato_il').range(da, a));
 }
 
-export async function caricaImpostazioni(): Promise<{ soglia: number; chiusure: string[] }> {
+export async function caricaImpostazioni(): Promise<{ soglia: number; oreGiro: number; chiusure: string[] }> {
   const imp = ok(await supabase.from('impostazioni').select('chiave, valore')) ?? [];
   const soglia = Number(imp.find((i) => i.chiave === 'giorni_alert')?.valore ?? '10');
+  const ore = Number(imp.find((i) => i.chiave === 'ore_giro')?.valore ?? '6');
   const ch = ok(await supabase.from('chiusure').select('data').order('data')) ?? [];
-  return { soglia: Number.isFinite(soglia) && soglia > 0 ? soglia : 10, chiusure: ch.map((c) => c.data as string) };
+  return {
+    soglia: Number.isFinite(soglia) && soglia > 0 ? soglia : 10,
+    oreGiro: Number.isFinite(ore) && ore > 0 ? ore : 6,
+    chiusure: ch.map((c) => c.data as string),
+  };
 }
 
 export async function caricaAnomalie(): Promise<Anomalia[]> {
@@ -200,9 +205,9 @@ export async function risolviAnomalia(id: number, risolta: boolean): Promise<voi
   );
 }
 
-/** Correzione manuale (solo admin): registra cosa è cambiato */
-export async function correggiCavalletta(prima: Cavalletta, patch: Partial<Cavalletta>): Promise<void> {
-  okTocca(await supabase.from('cavallette').update(patch).eq('id', prima.id).select('id'), 'Correzione');
+/** Correzione manuale: passa dalla funzione del database, che la segna nel registro come fatta a mano */
+export async function correggiCavalletta(prima: Cavalletta, patch: Partial<Cavalletta>, motivo?: string): Promise<void> {
+  ok(await supabase.rpc('correggi_cavalletta', { p_id: prima.id, p_patch: patch, p_motivo: motivo ?? null }));
   const cambi: Record<string, { da: unknown; a: unknown }> = {};
   for (const [k, v] of Object.entries(patch)) {
     const vecchio = (prima as unknown as Record<string, unknown>)[k];
@@ -211,8 +216,66 @@ export async function correggiCavalletta(prima: Cavalletta, patch: Partial<Caval
   ok(await supabase.from('eventi').insert({ cavalletta_id: prima.id, tipo: 'correzione', dettaglio: { cambi } }));
 }
 
-export async function eliminaCavalletta(id: string): Promise<void> {
-  okTocca(await supabase.from('cavallette').delete().eq('id', id).select('id'), 'Eliminazione');
+export async function eliminaCavalletta(id: string, motivo?: string): Promise<void> {
+  ok(await supabase.rpc('elimina_cavalletta', { p_id: id, p_motivo: motivo ?? null }));
+}
+
+// ---------- giro di raccolta, consegna, produzione ----------
+export async function programmaGiro(ids: string[]): Promise<void> {
+  ok(await supabase.rpc('programma_giro', { p_ids: ids }));
+}
+
+export async function annullaGiro(ids: string[]): Promise<void> {
+  ok(await supabase.rpc('annulla_giro', { p_ids: ids }));
+}
+
+/** Le cavallette il cui giro è scaduto tornano vuote in piazzale. Errori ignorati: ci pensa anche il controllo automatico. */
+export async function chiudiGiriScaduti(): Promise<void> {
+  try {
+    await supabase.rpc('chiudi_giri_scaduti');
+  } catch {
+    /* niente */
+  }
+}
+
+export async function consegna(commessa: string, ddt: string, ids: string[]): Promise<void> {
+  ok(await supabase.rpc('consegna_cavallette', { p_commessa: commessa, p_ddt: ddt, p_ids: ids }));
+}
+
+export async function imballa(commessa: string, cliente: string, indirizzo: string, numeri: string[]): Promise<void> {
+  ok(await supabase.rpc('imballa_cavallette', { p_commessa: commessa, p_cliente: cliente, p_indirizzo: indirizzo, p_numeri: numeri }));
+}
+
+export async function cercaCommessa(commessa: string): Promise<Commessa | null> {
+  return ok(await supabase.from('commesse').select('*').eq('commessa', commessa.trim()).maybeSingle()) ?? null;
+}
+
+/** Salva cliente e indirizzo di tutte le commesse dell'Excel (servono alla schermata Produzione) */
+export async function salvaCommesse(righe: RigaSmartsheet[]): Promise<number> {
+  const m = new Map<string, Commessa>();
+  for (const r of righe) if (r.commessa) m.set(r.commessa, { commessa: r.commessa, cliente: r.cliente, indirizzo: r.indirizzo });
+  const tutte = [...m.values()];
+  for (let i = 0; i < tutte.length; i += 500) ok(await supabase.from('commesse').upsert(tutte.slice(i, i + 500), { onConflict: 'commessa' }));
+  return tutte.length;
+}
+
+export interface FiltroRegistro {
+  da?: string;
+  a?: string;
+}
+
+/** Movimenti del registro tra due date, dal più recente (la ricerca si fa poi nella pagina) */
+export async function caricaRegistro(f: FiltroRegistro, max = 5000): Promise<MovimentoRegistro[]> {
+  const out: MovimentoRegistro[] = [];
+  for (let da = 0; da < max; da += 1000) {
+    let q = supabase.from('registro').select('*').order('progressivo', { ascending: false }).range(da, da + 999);
+    if (f.da) q = q.gte('data_mov', f.da);
+    if (f.a) q = q.lte('data_mov', f.a);
+    const pezzo = ok(await q) ?? [];
+    out.push(...(pezzo as MovimentoRegistro[]));
+    if (pezzo.length < 1000) break;
+  }
+  return out;
 }
 
 export async function restituisci(vetreria: string, ids: string[]): Promise<void> {

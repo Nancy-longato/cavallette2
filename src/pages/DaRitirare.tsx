@@ -1,14 +1,36 @@
 import { useMemo, useState } from 'react';
+import { annullaGiro, programmaGiro } from '../lib/api.ts';
+import { useAuth } from '../lib/auth.tsx';
 import { useDati } from '../lib/dati.tsx';
 import { aggiungiGiorniLavorativi, formattaData } from '../lib/dates.ts';
-import { daRitirare, giorniInCantiere, provinciaDa, SENZA_PROVINCIA } from '../lib/logica.ts';
-import { Messaggio, Titolo } from '../components/ui.tsx';
+import { daRitirare, giorniInCantiere, inGiro, oreAlRientro, provinciaDa, SENZA_PROVINCIA } from '../lib/logica.ts';
+import { dataOra, Badge, Messaggio, Titolo } from '../components/ui.tsx';
+import type { Cavalletta } from '../lib/types.ts';
+
+interface Riga {
+  c: Cavalletta;
+  giorni: number;
+}
+
+function oreTesto(ore: number): string {
+  const minuti = Math.max(1, Math.ceil(ore * 60));
+  const h = Math.floor(minuti / 60);
+  const m = minuti % 60;
+  return h > 0 ? `${h} h ${m} min` : `${m} min`;
+}
 
 export default function DaRitirare() {
-  const { cavallette, oggi, chiusure, soglia, nomeVetreria, errore } = useDati();
+  const { cavallette, oggi, chiusure, soglia, oreGiro, nomeVetreria, errore, ricarica } = useDati();
+  const { profilo } = useAuth();
+  const puoProgrammare = profilo?.ruolo === 'admin' || profilo?.ruolo === 'ufficio' || profilo?.ruolo === 'logistica';
   const [copiato, setCopiato] = useState(false);
+  const [modoGiro, setModoGiro] = useState(false);
+  const [scelte, setScelte] = useState<Set<string>>(new Set());
+  const [occupato, setOccupato] = useState(false);
+  const [errAzione, setErrAzione] = useState<string | null>(null);
+  const [esito, setEsito] = useState<string | null>(null);
 
-  const righe = useMemo(
+  const righe = useMemo<Riga[]>(
     () =>
       cavallette
         .filter((c) => daRitirare(c, oggi, chiusure, soglia))
@@ -19,7 +41,7 @@ export default function DaRitirare() {
 
   // divise per provincia (ordine alfabetico, «non indicata» in fondo)
   const perProvincia = useMemo(() => {
-    const m = new Map<string, typeof righe>();
+    const m = new Map<string, Riga[]>();
     for (const r of righe) {
       const k = provinciaDa(r.c.indirizzo);
       m.set(k, [...(m.get(k) ?? []), r]);
@@ -28,15 +50,80 @@ export default function DaRitirare() {
   }, [righe]);
 
   // prossime in scadenza (ultimi 3 giorni lavorativi prima della soglia)
-  const inArrivo = useMemo(
+  const inArrivo = useMemo<Riga[]>(
     () =>
       cavallette
-        .filter((c) => c.luogo === 'cliente' && !daRitirare(c, oggi, chiusure, soglia))
+        .filter((c) => c.luogo === 'cliente' && !inGiro(c) && !daRitirare(c, oggi, chiusure, soglia))
         .map((c) => ({ c, giorni: giorniInCantiere(c, oggi, chiusure) ?? 0 }))
         .filter((x) => x.giorni >= soglia - 3)
         .sort((a, b) => b.giorni - a.giorni),
     [cavallette, oggi, chiusure, soglia],
   );
+
+  // giri programmati: grigie, tornano vuote in piazzale da sole
+  const ingiro = useMemo(
+    () => cavallette.filter(inGiro).sort((a, b) => (a.in_giro_il ?? '').localeCompare(b.in_giro_il ?? '') || a.numero.localeCompare(b.numero, 'it', { numeric: true })),
+    [cavallette],
+  );
+
+  const scegliibili = useMemo(() => new Set([...righe, ...inArrivo].map((r) => r.c.id)), [righe, inArrivo]);
+  const nScelte = [...scelte].filter((id) => scegliibili.has(id)).length;
+
+  function alterna(id: string): void {
+    setScelte((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  }
+  function tutteDel(elenco: Riga[], su: boolean): void {
+    setScelte((s) => {
+      const n = new Set(s);
+      for (const { c } of elenco) {
+        if (su) n.add(c.id);
+        else n.delete(c.id);
+      }
+      return n;
+    });
+  }
+  function chiudiModo(): void {
+    setModoGiro(false);
+    setScelte(new Set());
+  }
+
+  async function invia(): Promise<void> {
+    const ids = [...scelte].filter((id) => scegliibili.has(id));
+    if (!ids.length) return;
+    setOccupato(true);
+    setErrAzione(null);
+    setEsito(null);
+    try {
+      await programmaGiro(ids);
+      setEsito(`Giro programmato: ${ids.length} ${ids.length === 1 ? 'cavalletta' : 'cavallette'}. Dopo ${oreGiro} ore tornano vuote in piazzale.`);
+      chiudiModo();
+      await ricarica();
+    } catch (e) {
+      setErrAzione(e instanceof Error ? e.message : 'Errore');
+    } finally {
+      setOccupato(false);
+    }
+  }
+
+  async function annulla(ids: string[]): Promise<void> {
+    setOccupato(true);
+    setErrAzione(null);
+    setEsito(null);
+    try {
+      await annullaGiro(ids);
+      setEsito(ids.length === 1 ? 'Giro annullato: la cavalletta risulta di nuovo dal cliente.' : 'Giro annullato per le cavallette indicate.');
+      await ricarica();
+    } catch (e) {
+      setErrAzione(e instanceof Error ? e.message : 'Errore');
+    } finally {
+      setOccupato(false);
+    }
+  }
 
   async function copia(): Promise<void> {
     const testo = perProvincia
@@ -49,45 +136,102 @@ export default function DaRitirare() {
     window.setTimeout(() => setCopiato(false), 2500);
   }
 
+  const Spunta = (p: { c: Cavalletta }) => (
+    <td className="spunta-col">
+      <input type="checkbox" aria-label={`Seleziona ${p.c.numero}`} checked={scelte.has(p.c.id)} onChange={() => alterna(p.c.id)} />
+    </td>
+  );
+
   return (
     <>
       <Titolo
         titolo="Cavallette da ritirare"
-        sotto={`Dal cliente da almeno ${soglia} giorni lavorativi, divise per provincia: presumibilmente vuote, si può organizzare il giro di recupero.`}
-        azioni={righe.length > 0 && <button className="btn" onClick={() => void copia()}>{copiato ? 'Copiato!' : 'Copia elenco'}</button>}
+        sotto={`Dal cliente da almeno ${soglia} giorni lavorativi, divise per provincia: presumibilmente vuote. Con «Programma giro di raccolta» l'autista sceglie quelle che va a recuperare.`}
+        azioni={
+          <>
+            {puoProgrammare && !modoGiro && (righe.length > 0 || inArrivo.length > 0) && (
+              <button className="btn btn-primary" onClick={() => setModoGiro(true)}>Programma giro di raccolta</button>
+            )}
+            {righe.length > 0 && <button className="btn" onClick={() => void copia()}>{copiato ? 'Copiato!' : 'Copia elenco'}</button>}
+          </>
+        }
       />
       {errore && <Messaggio tipo="errore">{errore}</Messaggio>}
+      {errAzione && <Messaggio tipo="errore">{errAzione}</Messaggio>}
+      {esito && <Messaggio tipo="ok">{esito}</Messaggio>}
+      {modoGiro && (
+        <Messaggio tipo="info">
+          Spunta le cavallette che l'autista va a ritirare e premi <strong>Invia giro</strong>: diventano grigie («In ritiro»). Dopo {oreGiro} ore le ritrovi vuote in piazzale, pronte per la restituzione o per un nuovo giro.
+        </Messaggio>
+      )}
+
+      {ingiro.length > 0 && (
+        <section className="gruppo giro">
+          <h2>
+            In giro di raccolta <span className="sotto">· {ingiro.length} {ingiro.length === 1 ? 'cavalletta' : 'cavallette'}</span>
+          </h2>
+          <div className="scorri">
+            <table className="tabella righe-grigie">
+              <thead>
+                <tr><th>N.</th><th>Vetreria</th><th>Cliente</th><th>Indirizzo</th><th>Partito il</th><th>Rientra in piazzale</th>{puoProgrammare && <th />}</tr>
+              </thead>
+              <tbody>
+                {ingiro.map((c) => (
+                  <tr key={c.id}>
+                    <td className="numero">{c.numero}</td>
+                    <td>{nomeVetreria(c.vetreria)}</td>
+                    <td>{c.cliente}</td>
+                    <td>{c.indirizzo}</td>
+                    <td>{c.in_giro_il ? dataOra(c.in_giro_il) : ''}</td>
+                    <td><Badge tono="grigio">tra {oreTesto(oreAlRientro(c, oreGiro))}</Badge></td>
+                    {puoProgrammare && (
+                      <td><button className="btn" disabled={occupato} onClick={() => void annulla([c.id])}>Annulla giro</button></td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {righe.length === 0 ? (
         <p className="vuoto">Nessuna cavalletta da ritirare in questo momento.</p>
       ) : (
-        perProvincia.map(([prov, elenco]) => (
-          <section key={prov} className="gruppo">
-            <h2>
-              {prov} <span className="sotto">· {elenco.length} {elenco.length === 1 ? 'cavalletta' : 'cavallette'}</span>
-            </h2>
-            <div className="scorri">
-              <table className="tabella">
-                <thead>
-                  <tr><th>N.</th><th>Vetreria</th><th>Cliente</th><th>Indirizzo</th><th>Commessa</th><th>Dal cliente da</th><th>Giorni lav.</th></tr>
-                </thead>
-                <tbody>
-                  {elenco.map(({ c, giorni }) => (
-                    <tr key={c.id}>
-                      <td className="numero">{c.numero}</td>
-                      <td>{nomeVetreria(c.vetreria)}</td>
-                      <td>{c.cliente}</td>
-                      <td>{c.indirizzo}</td>
-                      <td>{c.commessa}</td>
-                      <td>{formattaData(c.data_consegna)}</td>
-                      <td className="num"><strong>{giorni}</strong></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        ))
+        perProvincia.map(([prov, elenco]) => {
+          const tutte = elenco.every(({ c }) => scelte.has(c.id));
+          return (
+            <section key={prov} className="gruppo">
+              <h2>
+                {prov} <span className="sotto">· {elenco.length} {elenco.length === 1 ? 'cavalletta' : 'cavallette'}</span>
+                {modoGiro && (
+                  <button className="btn btn-piccolo" onClick={() => tutteDel(elenco, !tutte)}>{tutte ? 'Deseleziona' : 'Seleziona tutte'}</button>
+                )}
+              </h2>
+              <div className="scorri">
+                <table className="tabella">
+                  <thead>
+                    <tr>{modoGiro && <th />}<th>N.</th><th>Vetreria</th><th>Cliente</th><th>Indirizzo</th><th>Commessa</th><th>Dal cliente da</th><th>Giorni lav.</th></tr>
+                  </thead>
+                  <tbody>
+                    {elenco.map(({ c, giorni }) => (
+                      <tr key={c.id} className={scelte.has(c.id) ? 'riga-scelta' : ''}>
+                        {modoGiro && <Spunta c={c} />}
+                        <td className="numero">{c.numero}</td>
+                        <td>{nomeVetreria(c.vetreria)}</td>
+                        <td>{c.cliente}</td>
+                        <td>{c.indirizzo}</td>
+                        <td>{c.commessa}</td>
+                        <td>{formattaData(c.data_consegna)}</td>
+                        <td className="num"><strong>{giorni}</strong></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          );
+        })
       )}
 
       {inArrivo.length > 0 && (
@@ -96,11 +240,12 @@ export default function DaRitirare() {
           <div className="scorri">
             <table className="tabella">
               <thead>
-                <tr><th>N.</th><th>Provincia</th><th>Cliente</th><th>Indirizzo</th><th>Giorni lav.</th><th>Scatta il</th></tr>
+                <tr>{modoGiro && <th />}<th>N.</th><th>Provincia</th><th>Cliente</th><th>Indirizzo</th><th>Giorni lav.</th><th>Scatta il</th></tr>
               </thead>
               <tbody>
                 {inArrivo.map(({ c, giorni }) => (
-                  <tr key={c.id}>
+                  <tr key={c.id} className={scelte.has(c.id) ? 'riga-scelta' : ''}>
+                    {modoGiro && <Spunta c={c} />}
                     <td className="numero">{c.numero}</td>
                     <td>{provinciaDa(c.indirizzo)}</td>
                     <td>{c.cliente}</td>
@@ -113,6 +258,19 @@ export default function DaRitirare() {
             </table>
           </div>
         </>
+      )}
+
+      {modoGiro && (
+        <div className="barra-riepilogo">
+          <div>
+            <strong>{nScelte} {nScelte === 1 ? 'cavalletta selezionata' : 'cavallette selezionate'}</strong>
+            <div className="sotto">Diventano grigie e dopo {oreGiro} ore rientrano vuote in piazzale.</div>
+          </div>
+          <div className="riga-bottoni">
+            <button className="btn btn-primary" disabled={nScelte === 0 || occupato} onClick={() => void invia()}>{occupato ? 'Invio…' : 'Invia giro'}</button>
+            <button className="btn" disabled={occupato} onClick={chiudiModo}>Annulla</button>
+          </div>
+        </div>
       )}
     </>
   );

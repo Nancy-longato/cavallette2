@@ -10,6 +10,7 @@ import Login from './pages/Login.tsx';
 import Dashboard from './pages/Dashboard.tsx';
 import DaRitirare from './pages/DaRitirare.tsx';
 import DaConsegnare from './pages/DaConsegnare.tsx';
+import Produzione from './pages/Produzione.tsx';
 import Segnalazioni from './pages/Segnalazioni.tsx';
 import Arrivi from './pages/Arrivi.tsx';
 import ImportSmartsheet from './pages/ImportSmartsheet.tsx';
@@ -31,11 +32,12 @@ const ROTTE: Rotta[] = [
   { path: '/', titolo: 'Cruscotto', ruoli: STAFF, el: () => <Dashboard /> },
   { path: '/da-ritirare', titolo: 'Da ritirare', ruoli: STAFF, el: () => <DaRitirare /> },
   { path: '/da-consegnare', titolo: 'Da consegnare', ruoli: STAFF, el: () => <DaConsegnare /> },
+  { path: '/produzione', titolo: 'Produzione', ruoli: ['admin', 'ufficio', 'produzione'], el: () => <Produzione /> },
   { path: '/segnalazioni', titolo: 'Segnalazioni', ruoli: STAFF, el: () => <Segnalazioni /> },
   { path: '/arrivi', titolo: 'Arrivo vetri', ruoli: ['admin', 'ufficio'], el: () => <Arrivi /> },
   { path: '/smartsheet', titolo: 'Da Smartsheet', ruoli: ['admin', 'ufficio'], el: () => <ImportSmartsheet /> },
   { path: '/restituzione', titolo: 'Restituzione', ruoli: ['admin', 'magazziniere'], el: () => <Restituzione /> },
-  { path: '/storico', titolo: 'Storico', ruoli: STAFF, el: () => <Storico /> },
+  { path: '/storico', titolo: 'Registro', ruoli: STAFF, el: () => <Storico /> },
   { path: '/utenti', titolo: 'Utenti', ruoli: ['admin'], el: () => <Utenti /> },
   { path: '/impostazioni', titolo: 'Impostazioni', ruoli: ['admin'], el: () => <Impostazioni /> },
 ];
@@ -49,7 +51,7 @@ function Guscio() {
   const corrente = permesse.find((r) => r.path === rotta);
 
   const nDaRitirare = useMemo(
-    () => (ruolo === 'magazziniere' ? 0 : cavallette.filter((c) => daRitirare(c, oggi, chiusure, soglia)).length),
+    () => (!STAFF.includes(ruolo) ? 0 : cavallette.filter((c) => daRitirare(c, oggi, chiusure, soglia)).length),
     [cavallette, oggi, chiusure, soglia, ruolo],
   );
 

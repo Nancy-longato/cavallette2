@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { ChangeEvent } from 'react';
-import { applicaPiano, caricaAnomalie, caricaCavallette, caricaCicli } from '../lib/api.ts';
+import { applicaPiano, caricaAnomalie, caricaCavallette, caricaCicli, salvaCommesse } from '../lib/api.ts';
 import { leggiXlsx } from '../lib/xlsxReader.ts';
 import { leggiSmartsheet, pianificaImport } from '../lib/smartsheet.ts';
 import type { LetturaSmartsheet, StatoImport } from '../lib/smartsheet.ts';
@@ -62,6 +62,8 @@ export default function ImportSmartsheet() {
     setErrore(null);
     try {
       await applicaPiano(piano);
+      // cliente e indirizzo di tutte le commesse: servono alla schermata Produzione
+      if (lettura) await salvaCommesse(lettura.righe);
       setEsito(
         `Fatto: ${piano.azioni.length} aggiornamenti alle cavallette` +
           (piano.anomalie.length ? `, ${piano.anomalie.length} nuove segnalazioni` : '') +

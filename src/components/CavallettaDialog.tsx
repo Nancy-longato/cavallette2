@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Cavalletta, Evento, Luogo, Stato } from '../lib/types.ts';
 import { caricaEventi, correggiCavalletta, eliminaCavalletta } from '../lib/api.ts';
 import { formattaData } from '../lib/dates.ts';
-import { daRitirare, etichettaLuogo, etichettaStato, giacenza, giorniInCantiere } from '../lib/logica.ts';
+import { daRitirare, etichettaLuogo, etichettaStato, giacenza, giorniInCantiere, giorniNelloStep, inGiro, inizioStep, NOMI_STEP, oreAlRientro, stepDi } from '../lib/logica.ts';
 import { useDati } from '../lib/dati.tsx';
 import { useAuth } from '../lib/auth.tsx';
 import { Messaggio, dataOra } from './ui.tsx';
@@ -14,6 +14,8 @@ const NOMI_EVENTO: Record<string, string> = {
   consegnata: 'Consegnata al cliente',
   rientrata: 'Rientrata in piazzale, vuota',
   non_usata: 'Segnata vuota: non usata in produzione',
+  giro_programmato: 'Giro di raccolta programmato',
+  giro_annullato: 'Giro di raccolta annullato',
   restituita: 'Restituita alla vetreria',
   correzione: 'Correzione manuale',
 };
@@ -30,6 +32,7 @@ function descriviEvento(e: Evento): string {
   if (d.commessa) parti.push(`commessa ${String(d.commessa)}`);
   if (d.cliente) parti.push(String(d.cliente));
   if (d.ddt) parti.push(`DDT ${String(d.ddt)}`);
+  if (d.fonte) parti.push(String(d.fonte));
   if (d.contenuto) parti.push(String(d.contenuto));
   return parti.join(' · ');
 }
@@ -41,7 +44,7 @@ interface Props {
 }
 
 export default function CavallettaDialog({ cavalletta: c, onChiudi, onModificata }: Props) {
-  const { oggi, chiusure, soglia, nomeVetreria } = useDati();
+  const { oggi, chiusure, soglia, oreGiro, nomeVetreria } = useDati();
   const { profilo } = useAuth();
   const admin = profilo?.ruolo === 'admin';
   const puoCorreggere = admin || profilo?.ruolo === 'amministrazione' || profilo?.ruolo === 'ufficio';
@@ -56,8 +59,10 @@ export default function CavallettaDialog({ cavalletta: c, onChiudi, onModificata
     cliente: c.cliente ?? '',
     indirizzo: c.indirizzo ?? '',
     data_consegna: c.data_consegna ?? '',
+    ddt_consegna: c.ddt_consegna ?? '',
     note: c.note ?? '',
   });
+  const [motivo, setMotivo] = useState('');
 
   useEffect(() => {
     let annullato = false;
@@ -89,10 +94,11 @@ export default function CavallettaDialog({ cavalletta: c, onChiudi, onModificata
         cliente: vuoto(f.cliente),
         indirizzo: vuoto(f.indirizzo),
         data_consegna: vuoto(f.data_consegna),
+        ddt_consegna: vuoto(f.ddt_consegna),
         note: vuoto(f.note),
       };
       if (patch.stato === 'vuota') patch.contenuto = null;
-      await correggiCavalletta(c, patch);
+      await correggiCavalletta(c, patch, motivo.trim() || undefined);
       onModificata();
     } catch (e) {
       setErrore(e instanceof Error ? e.message : 'Errore durante il salvataggio');
@@ -104,7 +110,7 @@ export default function CavallettaDialog({ cavalletta: c, onChiudi, onModificata
   async function elimina(): Promise<void> {
     if (!window.confirm(`Eliminare definitivamente la cavalletta ${c.numero}? Usa questa funzione solo per errori di inserimento.`)) return;
     try {
-      await eliminaCavalletta(c.id);
+      await eliminaCavalletta(c.id, motivo.trim() || 'errore di inserimento');
       onModificata();
     } catch (e) {
       setErrore(e instanceof Error ? e.message : 'Errore');
@@ -134,11 +140,14 @@ export default function CavallettaDialog({ cavalletta: c, onChiudi, onModificata
             {c.data_arrivo && (<><dt>Arrivata il</dt><dd>{formattaData(c.data_arrivo)}{c.ddt_arrivo ? ` (DDT ${c.ddt_arrivo})` : ''}</dd></>)}
             {gg !== null && (<><dt>Giacenza</dt><dd>{gg} giorni</dd></>)}
             {c.data_consegna && (<><dt>Dal cliente da</dt><dd>{formattaData(c.data_consegna)}{cant !== null ? ` (${cant} giorni lavorativi)` : ''}</dd></>)}
+            {c.ddt_consegna && (<><dt>DDT consegna</dt><dd>{c.ddt_consegna}</dd></>)}
+            {inGiro(c) && c.in_giro_il && (<><dt>Giro di raccolta</dt><dd>programmato {dataOra(c.in_giro_il)}: rientra in piazzale tra circa {Math.ceil(oreAlRientro(c, oreGiro))} h</dd></>)}
+            <dt>Nello step</dt><dd>{NOMI_STEP[stepDi(c)]} da {formattaData(inizioStep(c))} ({giorniNelloStep(c, oggi)} giorni)</dd>
             {c.note && (<><dt>Note</dt><dd>{c.note}</dd></>)}
           </dl>
         ) : (
           <div className="form">
-            <p className="nota">Correzione manuale: la modifica viene registrata nello storico.</p>
+            <p className="nota">Correzione manuale: resta nel registro movimenti, segnata come «modificato a mano», con il tuo nome.</p>
             <label>Luogo
               <select value={f.luogo} onChange={(e) => setF({ ...f, luogo: e.target.value as Luogo })}>
                 <option value="piazzale">Piazzale</option>
@@ -156,6 +165,8 @@ export default function CavallettaDialog({ cavalletta: c, onChiudi, onModificata
             <label>Cliente<input value={f.cliente} onChange={(e) => setF({ ...f, cliente: e.target.value })} /></label>
             <label>Indirizzo<input value={f.indirizzo} onChange={(e) => setF({ ...f, indirizzo: e.target.value })} /></label>
             <label>Dal cliente da (data)<input type="date" value={f.data_consegna} onChange={(e) => setF({ ...f, data_consegna: e.target.value })} /></label>
+            <label>DDT consegna<input value={f.ddt_consegna} onChange={(e) => setF({ ...f, ddt_consegna: e.target.value })} /></label>
+            <label>Motivo della correzione (facoltativo)<input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="es. numero scritto male" /></label>
             <label>Note<textarea value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} rows={2} /></label>
             <div className="riga-bottoni">
               <button className="btn btn-primary" disabled={occupato} onClick={() => void salva()}>Salva correzione</button>

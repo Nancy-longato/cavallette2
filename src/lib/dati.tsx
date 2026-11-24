@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { caricaAnomalie, caricaCavallette, caricaImpostazioni, caricaVetrerie } from './api.ts';
+import { caricaAnomalie, caricaCavallette, caricaImpostazioni, caricaVetrerie, chiudiGiriScaduti } from './api.ts';
 import { useAuth } from './auth.tsx';
 import { oggiRoma } from './dates.ts';
 import type { Cavalletta, Vetreria } from './types.ts';
@@ -11,6 +11,7 @@ interface Dati {
   vetrerie: Vetreria[];
   cavallette: Cavalletta[];
   soglia: number;
+  oreGiro: number;
   chiusure: Set<string>;
   anomalieAperte: number;
   oggi: string;
@@ -28,6 +29,7 @@ export function DatiProvider(props: { children: ReactNode }) {
   const [vetrerie, setVetrerie] = useState<Vetreria[]>([]);
   const [cavallette, setCavallette] = useState<Cavalletta[]>([]);
   const [soglia, setSoglia] = useState(10);
+  const [oreGiro, setOreGiro] = useState(6);
   const [chiusure, setChiusure] = useState<Set<string>>(new Set());
   const [anomalieAperte, setAnomalieAperte] = useState(0);
   const [oggi, setOggi] = useState(oggiRoma());
@@ -38,7 +40,9 @@ export function DatiProvider(props: { children: ReactNode }) {
       return;
     }
     try {
-      const staff = ruolo !== 'magazziniere';
+      const staff = ['admin', 'ufficio', 'logistica', 'amministrazione'].includes(ruolo);
+      // chi ha finito il giro (ore scadute) torna vuota in piazzale prima di leggere i dati
+      await chiudiGiriScaduti();
       const [v, c, imp, an] = await Promise.all([
         caricaVetrerie(),
         caricaCavallette(),
@@ -48,6 +52,7 @@ export function DatiProvider(props: { children: ReactNode }) {
       setVetrerie(v);
       setCavallette(c);
       setSoglia(imp.soglia);
+      setOreGiro(imp.oreGiro);
       setChiusure(new Set(imp.chiusure));
       setAnomalieAperte(an.filter((a) => !a.risolta).length);
       setOggi(oggiRoma());
@@ -80,13 +85,14 @@ export function DatiProvider(props: { children: ReactNode }) {
       vetrerie,
       cavallette,
       soglia,
+      oreGiro,
       chiusure,
       anomalieAperte,
       oggi,
       nomeVetreria: (codice) => vetrerie.find((v) => v.codice === codice)?.nome ?? codice,
       ricarica,
     }),
-    [caricamento, errore, vetrerie, cavallette, soglia, chiusure, anomalieAperte, oggi, ricarica],
+    [caricamento, errore, vetrerie, cavallette, soglia, oreGiro, chiusure, anomalieAperte, oggi, ricarica],
   );
   return <Ctx.Provider value={valore}>{props.children}</Ctx.Provider>;
 }

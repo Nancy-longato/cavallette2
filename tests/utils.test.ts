@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { provinciaDa } from '../src/lib/logica.ts';
 import { normalizzaChiave, spezzaCavallette, chiaveDaCodice, trovaNumero, espandiIntervalli, confrontaNumeri } from '../src/lib/keys.ts';
 import { pasqua, festivi, isLavorativo, giorniLavorativiTra, aggiungiGiorniLavorativi, addDays, diffDays, oggiRoma, formattaData } from '../src/lib/dates.ts';
-import { giorniInCantiere, daRitirare, giacenza } from '../src/lib/logica.ts';
+import { giorniInCantiere, daRitirare, giacenza, inGiro, oreAlRientro, etichettaStato, giorniNelloStep, stepDi } from '../src/lib/logica.ts';
 import type { Cavalletta } from '../src/lib/types.ts';
 
 test('normalizzaChiave ignora spazi, trattini e maiuscole', () => {
@@ -99,7 +99,7 @@ function cav(parziale: Partial<Cavalletta>): Cavalletta {
     id: 'x', numero: 'P1', vetreria: 'P', etichetta: null, contenuto: null, data_arrivo: null, ddt_arrivo: null,
     luogo: 'piazzale', stato: 'vuota', commessa: null, cliente: null, indirizzo: null, data_uscita: null,
     data_consegna: null, note: null, restituita: false, restituita_il: null, restituzione_id: null,
-    creata_il: '', aggiornata_il: '', ...parziale,
+    in_giro_il: null, stato_dal: '2026-11-03', ddt_consegna: null, creata_il: '', aggiornata_il: '', ...parziale,
   };
 }
 
@@ -135,4 +135,28 @@ test('provinciaDa: legge la provincia tra parentesi in fondo all\'indirizzo', ()
   assert.equal(provinciaDa('Via Z 1, X (RE)'), 'Reggio Emilia');
   assert.equal(provinciaDa('Via senza provincia 5'), 'Provincia non indicata');
   assert.equal(provinciaDa(null), 'Provincia non indicata');
+});
+
+test('giro di raccolta: grigia, non più «da ritirare», rientra dopo le ore', () => {
+  const c = cav({ luogo: 'cliente', stato: 'piena_serramenti', data_consegna: '2026-10-19', in_giro_il: '2026-11-04T08:00:00Z' });
+  const vuoto = new Set<string>();
+  assert.equal(inGiro(c), true);
+  assert.equal(daRitirare(c, '2026-11-04', vuoto, 10), false);
+  assert.equal(etichettaStato(c, false), 'In ritiro (giro)');
+  assert.equal(Math.round(oreAlRientro(c, 6, new Date('2026-11-04T10:00:00Z'))), 4);
+  assert.equal(oreAlRientro(c, 6, new Date('2026-11-04T15:00:00Z')), 0);
+  assert.equal(inGiro(cav({ luogo: 'piazzale', in_giro_il: '2026-11-04T08:00:00Z' })), false);
+});
+
+test('da quanto è ferma nello step attuale', () => {
+  // dal cliente: conta dalla data di consegna
+  assert.equal(giorniNelloStep(cav({ luogo: 'cliente', stato: 'piena_serramenti', data_consegna: '2026-10-30', stato_dal: '2026-11-04' }), '2026-11-04'), 5);
+  // con i vetri: dalla data del DDT di arrivo
+  assert.equal(giorniNelloStep(cav({ stato: 'piena_vetri', data_arrivo: '2026-11-02', stato_dal: '2026-11-03' }), '2026-11-04'), 2);
+  // vuota o serramenti in piazzale: da quando è entrata nello stato
+  assert.equal(giorniNelloStep(cav({ stato: 'piena_serramenti', stato_dal: '2026-11-01' }), '2026-11-04'), 3);
+  assert.equal(giorniNelloStep(cav({ stato: 'vuota', stato_dal: '2026-11-04' }), '2026-11-04'), 0);
+  // in giro: dall'ora di partenza del giro (giorno di Roma)
+  assert.equal(giorniNelloStep(cav({ luogo: 'cliente', stato: 'piena_serramenti', data_consegna: '2026-10-19', in_giro_il: '2026-11-03T10:00:00Z' }), '2026-11-04'), 1);
+  assert.equal(stepDi(cav({ stato: 'piena_vetri' })), 'vetri');
 });

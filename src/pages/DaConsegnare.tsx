@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react';
+import { consegna } from '../lib/api.ts';
+import { useAuth } from '../lib/auth.tsx';
 import { useDati } from '../lib/dati.tsx';
 import { confrontaNumeri } from '../lib/keys.ts';
 import { formattaData } from '../lib/dates.ts';
@@ -18,7 +20,13 @@ interface Gruppo {
 }
 
 export default function DaConsegnare() {
-  const { cavallette, oggi, nomeVetreria, errore } = useDati();
+  const { cavallette, oggi, nomeVetreria, errore, ricarica } = useDati();
+  const { profilo } = useAuth();
+  const puoConsegnare = profilo?.ruolo === 'admin' || profilo?.ruolo === 'ufficio' || profilo?.ruolo === 'logistica';
+  const [ddt, setDdt] = useState<Record<string, string>>({});
+  const [occupato, setOccupato] = useState(false);
+  const [errAzione, setErrAzione] = useState<string | null>(null);
+  const [esito, setEsito] = useState<string | null>(null);
   const [cerca, setCerca] = useState('');
   const [scelte, setScelte] = useState<Set<string>>(new Set());
   const [copiato, setCopiato] = useState(false);
@@ -79,6 +87,33 @@ export default function DaConsegnare() {
     });
   }
 
+  async function conferma(g: Gruppo): Promise<void> {
+    const ids = g.cavallette.filter((c) => scelte.has(c.id) && prontaDaConsegnare(c)).map((c) => c.id);
+    const d = (ddt[g.commessa] ?? '').trim();
+    setErrAzione(null);
+    setEsito(null);
+    if (!ids.length) return;
+    if (!d) {
+      setErrAzione(`Inserisci il DDT dell'amministrazione per la commessa ${g.commessa}.`);
+      return;
+    }
+    setOccupato(true);
+    try {
+      await consegna(g.commessa, d, ids);
+      setScelte((s) => {
+        const n = new Set(s);
+        for (const id of ids) n.delete(id);
+        return n;
+      });
+      setEsito(`Commessa ${g.commessa}: ${ids.length} ${ids.length === 1 ? 'cavalletta consegnata' : 'cavallette consegnate'} (DDT ${d}) il ${formattaData(oggi)}. Ora risultano dal cliente con i serramenti.`);
+      await ricarica();
+    } catch (e) {
+      setErrAzione(e instanceof Error ? e.message : 'Errore');
+    } finally {
+      setOccupato(false);
+    }
+  }
+
   async function copia(): Promise<void> {
     const testo = riepilogo
       .map((g) => [`Commessa ${g.commessa}${g.cliente ? ` · ${g.cliente}` : ''}${g.indirizzo ? ` · ${g.indirizzo}` : ''}`, ...g.cavallette.map((c) => `${c.numero} (${nomeVetreria(c.vetreria)})`)].join('\n'))
@@ -93,6 +128,9 @@ export default function DaConsegnare() {
       <div className="no-stampa">
         <Titolo titolo="Cavallette da consegnare" sotto="Scrivi il numero di commessa: compaiono le cavallette abbinate. Spunta solo quelle che carichi sul mezzo." />
         {errore && <Messaggio tipo="errore">{errore}</Messaggio>}
+        {errAzione && <Messaggio tipo="errore">{errAzione}</Messaggio>}
+        {esito && <Messaggio tipo="ok">{esito}</Messaggio>}
+        {puoConsegnare && <p className="nota">Data della consegna: <strong>oggi, {formattaData(oggi)}</strong>. Dopo aver spuntato le cavallette che carichi, scrivi il DDT dell'amministrazione e conferma.</p>}
 
         <label className="form">
           Numero di commessa
@@ -152,6 +190,22 @@ export default function DaConsegnare() {
                   );
                 })}
               </ul>
+              {puoConsegnare && pronte.length > 0 && (
+                <div className="riga-conferma">
+                  <label className="form">
+                    DDT dell'amministrazione
+                    <input
+                      value={ddt[g.commessa] ?? ''}
+                      onChange={(e) => setDdt((d) => ({ ...d, [g.commessa]: e.target.value }))}
+                      placeholder="numero DDT"
+                      autoComplete="off"
+                    />
+                  </label>
+                  <button className="btn btn-primary btn-big" disabled={scelteQui === 0 || occupato} onClick={() => void conferma(g)}>
+                    {occupato ? 'Invio…' : `Conferma consegna (${scelteQui})`}
+                  </button>
+                </div>
+              )}
             </section>
           );
         })}

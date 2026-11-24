@@ -45,6 +45,7 @@ Non mettere mai la chiave `service_role` nell'app.
 | ufficio (Nicole) | tutto in lettura, carica DDT/Excel, import Smartsheet |
 | amministrazione | tutto in lettura, può correggere a mano le cavallette |
 | logistica / peso | tutto in lettura, schermata «Da ritirare» con il segnale |
+| produzione | solo «Produzione»: scrive la commessa e segna le cavallette riempite di serramenti |
 | magazziniere | solo «Restituzione»: vede solo cavallette vuote in piazzale, nessun dato cliente |
 | nessuno | utente appena creato, non vede nulla finché non gli dai un ruolo |
 
@@ -63,6 +64,15 @@ Non mettere mai la chiave `service_role` nell'app.
 - **Da ritirare**: dopo 10 giorni *lavorativi* (esclusi sabati, domeniche, festivi italiani e chiusure aziendali) dalla consegna. Soglia e chiusure si cambiano in **Impostazioni**. Il magazziniere non la vede.
 - **Restituzione** (magazziniere): sceglie la vetreria, spunta le cavallette, Invia. Spariscono dal cruscotto e restano nello **Storico** (data + elenco).
 - Le cavallette Longato non si restituiscono mai, ma restano sempre visibili nel cruscotto. «Giacenza» = giorni dall'arrivo per quelle dei fornitori.
+
+## 5bis. Novità della versione 2
+
+- **Da ritirare → «Programma giro di raccolta»** (admin, ufficio, logistica): si spuntano le cavallette che l'autista va a prendere e si preme *Invia giro*. Diventano grigie («In ritiro»); dopo 6 ore (impostazione `ore_giro`) tornano da sole vuote in piazzale, senza commessa/cliente/indirizzo. Fino ad allora si può *Annullare il giro*.
+- **Da consegnare**: la data è quella di oggi; si scrive il numero di commessa, si spuntano le cavallette caricate, si inserisce il **DDT dell'amministrazione** e si conferma: risultano dal cliente con i serramenti (da lì partono i 10 giorni lavorativi).
+- **Produzione** (ruolo `produzione`, oppure admin/ufficio): si scrive la commessa (cliente e indirizzo si compilano dall'ultimo Excel di Smartsheet caricato dall'ufficio, oppure a mano), si sceglie la vetreria e il numero di ogni cavalletta, e le cavallette risultano imballate (piazzale, con serramenti).
+- **Cruscotto**: colonna «Ferma da (gg)» = da quanti giorni la cavalletta è nello step attuale (vetri / serramenti in piazzale / dal cliente / in giro / vuota); sulle schede la media e il massimo; filtro «ferme da almeno N giorni».
+- **Registro movimenti** (ex Storico): come un magazzino fiscale. Ogni movimento ha un numero progressivo senza buchi, data, ora, utente, e una catena di controllo (ogni riga contiene l'impronta della precedente). Non si può modificare né cancellare, nemmeno dall'amministratore: un errore si corregge con un nuovo movimento. Le correzioni fatte a mano da admin/ufficio/amministrazione entrano nel registro come «modificato a mano» con il nome di chi le ha fatte e il motivo. Ricerca per cavalletta, commessa, DDT, cliente; raggruppato per data; esportabile in CSV.
+- Database già esistente? Esegui `supabase/aggiorna_ruolo_produzione.sql` (da solo, una volta), poi tutto `supabase/schema.sql`.
 
 ## 6. Cose da sapere
 
