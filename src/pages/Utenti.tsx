@@ -7,7 +7,7 @@ import { Messaggio, Titolo } from '../components/ui.tsx';
 const RUOLI: { valore: Ruolo; nome: string; descrizione: string }[] = [
   { valore: 'admin', nome: 'Amministratore', descrizione: 'Vede e modifica tutto, gestisce utenti e impostazioni' },
   { valore: 'ufficio', nome: 'Ufficio (Nicole)', descrizione: 'Carica arrivi e import Smartsheet, vede tutto' },
-  { valore: 'amministrazione', nome: 'Amministrazione', descrizione: 'Vede tutto, può correggere a mano le cavallette' },
+  { valore: 'amministrazione', nome: 'Amministrazione', descrizione: 'Cruscotto, Arrivo vetri, Da Smartsheet e Registro; può correggere a mano le cavallette' },
   { valore: 'logistica', nome: 'Logistica / Peso', descrizione: 'Vede tutto, riceve le segnalazioni, non modifica' },
   { valore: 'autista', nome: 'Autista', descrizione: 'Cruscotto, Da ritirare (programma il giro) e Da consegnare (conferma le consegne)' },
   { valore: 'produzione', nome: 'Produzione', descrizione: 'Solo la schermata di imballo: commessa e cavallette usate' },

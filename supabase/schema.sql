@@ -207,7 +207,7 @@ create policy cavallette_select_staff on public.cavallette for select to authent
 drop policy if exists cavallette_select_magazziniere on public.cavallette;
 drop policy if exists cavallette_insert on public.cavallette;
 create policy cavallette_insert on public.cavallette for insert to authenticated
-  with check (public.ruolo_corrente() in ('admin', 'ufficio'));
+  with check (public.ruolo_corrente() in ('admin', 'ufficio', 'amministrazione'));
 drop policy if exists cavallette_update on public.cavallette;
 create policy cavallette_update on public.cavallette for update to authenticated
   using (public.ruolo_corrente() in ('admin', 'ufficio', 'amministrazione'))
@@ -222,8 +222,8 @@ create policy cicli_select on public.cicli for select to authenticated
   using (public.ruolo_corrente() in ('admin', 'ufficio', 'logistica', 'amministrazione'));
 drop policy if exists cicli_write on public.cicli;
 create policy cicli_write on public.cicli for all to authenticated
-  using (public.ruolo_corrente() in ('admin', 'ufficio'))
-  with check (public.ruolo_corrente() in ('admin', 'ufficio'));
+  using (public.ruolo_corrente() in ('admin', 'ufficio', 'amministrazione'))
+  with check (public.ruolo_corrente() in ('admin', 'ufficio', 'amministrazione'));
 
 -- eventi
 drop policy if exists eventi_select on public.eventi;
@@ -239,7 +239,7 @@ create policy anomalie_select on public.anomalie for select to authenticated
   using (public.ruolo_corrente() in ('admin', 'ufficio', 'logistica', 'amministrazione'));
 drop policy if exists anomalie_insert on public.anomalie;
 create policy anomalie_insert on public.anomalie for insert to authenticated
-  with check (public.ruolo_corrente() in ('admin', 'ufficio'));
+  with check (public.ruolo_corrente() in ('admin', 'ufficio', 'amministrazione'));
 drop policy if exists anomalie_update on public.anomalie;
 create policy anomalie_update on public.anomalie for update to authenticated
   using (public.ruolo_corrente() in ('admin', 'ufficio', 'logistica', 'amministrazione'))
@@ -337,7 +337,7 @@ create policy commesse_select on public.commesse for select to authenticated
   using (public.ruolo_corrente() in ('admin', 'ufficio', 'logistica', 'amministrazione', 'produzione'));
 drop policy if exists commesse_write on public.commesse;
 create policy commesse_write on public.commesse for all to authenticated
-  using (public.ruolo_corrente() in ('admin', 'ufficio')) with check (public.ruolo_corrente() in ('admin', 'ufficio'));
+  using (public.ruolo_corrente() in ('admin', 'ufficio', 'amministrazione')) with check (public.ruolo_corrente() in ('admin', 'ufficio', 'amministrazione'));
 
 -- la produzione vede solo le cavallette in piazzale con vetri o vuote (nessun dato cliente)
 drop policy if exists cavallette_select_produzione on public.cavallette;
