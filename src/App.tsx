@@ -31,12 +31,12 @@ const STAFF: Ruolo[] = ['admin', 'ufficio', 'logistica', 'amministrazione'];
 const CON_AUTISTI: Ruolo[] = [...STAFF, 'autista'];
 const ROTTE: Rotta[] = [
   { path: '/', titolo: 'Cruscotto', ruoli: [...CON_AUTISTI, 'magazziniere'], el: () => <Dashboard /> },
-  { path: '/da-ritirare', titolo: 'Da ritirare', ruoli: ['admin', 'ufficio', 'logistica', 'autista'], el: () => <DaRitirare /> },
-  { path: '/da-consegnare', titolo: 'Da consegnare', ruoli: ['admin', 'ufficio', 'logistica', 'autista'], el: () => <DaConsegnare /> },
+  { path: '/da-ritirare', titolo: 'Da ritirare', ruoli: CON_AUTISTI, el: () => <DaRitirare /> },
+  { path: '/da-consegnare', titolo: 'Da consegnare', ruoli: CON_AUTISTI, el: () => <DaConsegnare /> },
   { path: '/produzione', titolo: 'Produzione', ruoli: ['admin', 'ufficio', 'produzione'], el: () => <Produzione /> },
-  { path: '/segnalazioni', titolo: 'Segnalazioni', ruoli: ['admin', 'ufficio', 'logistica'], el: () => <Segnalazioni /> },
-  { path: '/arrivi', titolo: 'Arrivo vetri', ruoli: ['admin', 'ufficio', 'amministrazione'], el: () => <Arrivi /> },
-  { path: '/smartsheet', titolo: 'Da Smartsheet', ruoli: ['admin', 'ufficio', 'amministrazione'], el: () => <ImportSmartsheet /> },
+  { path: '/segnalazioni', titolo: 'Segnalazioni', ruoli: STAFF, el: () => <Segnalazioni /> },
+  { path: '/arrivi', titolo: 'Arrivo vetri', ruoli: ['admin', 'ufficio'], el: () => <Arrivi /> },
+  { path: '/smartsheet', titolo: 'Da Smartsheet', ruoli: ['admin', 'ufficio'], el: () => <ImportSmartsheet /> },
   { path: '/restituzione', titolo: 'Restituzione', ruoli: ['admin', 'magazziniere'], el: () => <Restituzione /> },
   { path: '/storico', titolo: 'Registro', ruoli: STAFF, el: () => <Storico /> },
   { path: '/utenti', titolo: 'Utenti', ruoli: ['admin'], el: () => <Utenti /> },
@@ -53,7 +53,7 @@ function Guscio() {
 
   const iniziale = useRef(false);
   const nDaRitirare = useMemo(
-    () => (!['admin', 'ufficio', 'logistica', 'autista'].includes(ruolo) ? 0 : cavallette.filter((c) => daRitirare(c, oggi, chiusure, soglia)).length),
+    () => (!CON_AUTISTI.includes(ruolo) ? 0 : cavallette.filter((c) => daRitirare(c, oggi, chiusure, soglia)).length),
     [cavallette, oggi, chiusure, soglia, ruolo],
   );
 

@@ -43,7 +43,7 @@ Non mettere mai la chiave `service_role` nell'app.
 |---|---|
 | admin (tu) | tutto, correzioni a mano, utenti, impostazioni |
 | ufficio (Nicole) | tutto in lettura, carica DDT/Excel, import Smartsheet |
-| amministrazione | Cruscotto, Arrivo vetri, Da Smartsheet e Registro; può correggere a mano le cavallette |
+| amministrazione | tutto in lettura, può correggere a mano le cavallette |
 | logistica / peso | tutto in lettura, schermata «Da ritirare» con il segnale |
 | produzione | solo «Produzione»: scrive la commessa e segna le cavallette riempite di serramenti |
 | autista | Cruscotto, «Da ritirare» (programma il giro di raccolta) e «Da consegnare» (conferma le consegne con il DDT) |
