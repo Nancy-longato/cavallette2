@@ -55,17 +55,19 @@ export default function ImportSmartsheet() {
   }, [lettura, stato, dal, aperte]);
 
   const daFare = piano !== null && (piano.azioni.length > 0 || piano.cicli.length > 0 || piano.anomalie.length > 0 || piano.risolte.length > 0);
+  const soloCommesse = lettura !== null && !lettura.haMovimenti;
 
   async function applica(): Promise<void> {
     if (!piano) return;
     setOccupato(true);
     setErrore(null);
     try {
-      await applicaPiano(piano);
+      if (daFare) await applicaPiano(piano);
       // cliente e indirizzo di tutte le commesse: servono alla schermata Produzione
-      if (lettura) await salvaCommesse(lettura.righe);
+      const n = lettura ? await salvaCommesse(lettura.righe) : 0;
       setEsito(
-        `Fatto: ${piano.azioni.length} aggiornamenti alle cavallette` +
+        `Fatto: ${n} commesse salvate (cliente e indirizzo per la schermata Produzione)` +
+          (piano.azioni.length ? `, ${piano.azioni.length} aggiornamenti alle cavallette` : '') +
           (piano.anomalie.length ? `, ${piano.anomalie.length} nuove segnalazioni` : '') +
           '.',
       );
@@ -81,7 +83,7 @@ export default function ImportSmartsheet() {
 
   return (
     <>
-      <Titolo titolo="Aggiorna da Smartsheet" sotto="Carica l'Excel scaricato da Smartsheet: vedrai cosa cambierebbe e confermi tu. Si può ripetere tutte le volte che vuoi." />
+      <Titolo titolo="Aggiorna da Smartsheet" sotto="Carica l'Excel scaricato da Smartsheet: commessa, cliente e indirizzo servono alla schermata Produzione. Si può ripetere tutte le volte che vuoi." />
       {errore && <Messaggio tipo="errore">{errore}</Messaggio>}
       {esito && <Messaggio tipo="ok">{esito}</Messaggio>}
 
@@ -103,24 +105,35 @@ export default function ImportSmartsheet() {
           <h2>Anteprima</h2>
           <p className="sotto">Foglio «{lettura.foglio}» · {lettura.righe.length} commesse lette · {piano.riepilogo.righeConCavallette} con cavallette da considerare</p>
 
-          {!lettura.haDataCons && (
+          {soloCommesse && (
+            <Messaggio tipo="info">
+              Il foglio non ha le colonne dei movimenti (IMBALLAGGIO, N° CAVALLETTE, DDT…): è giusto così. Da qui si leggono solo <strong>commessa, cliente e indirizzo</strong>, che la schermata Produzione usa per compilare i dati. I movimenti delle cavallette si registrano nell'app.
+            </Messaggio>
+          )}
+          {!soloCommesse && !lettura.haDataCons && (
             <Messaggio tipo="info">
               Nelle colonne «DATA CONS. RIENTRATO» e «DAT DDT RIENTRO CAVALLETTA» non ci sono date: i 10 giorni per il ritiro partono dal giorno in cui la spunta viene vista per la prima volta (il giorno in cui carichi il file).
             </Messaggio>
           )}
-          {lettura.haDataCons && (
+          {!soloCommesse && lettura.haDataCons && (
             <label className="form">Considera solo le commesse con data di consegna/rientro dal (utile al primo import, per saltare lo storico vecchio)
               <input type="date" value={dal} onChange={(e) => setDal(e.target.value)} />
             </label>
           )}
 
-          <div className="stats stats-piccole">
+          {soloCommesse && (
+            <div className="stats stats-piccole">
+              <div className="stat"><span className="stat-n">{lettura.righe.length}</span><span className="stat-t">Commesse lette</span></div>
+              <div className="stat"><span className="stat-n">{lettura.righe.filter((r) => r.cliente || r.indirizzo).length}</span><span className="stat-t">Con cliente / indirizzo</span></div>
+            </div>
+          )}
+          {!soloCommesse && <div className="stats stats-piccole">
             <div className="stat"><span className="stat-n">{piano.riepilogo.imballate}</span><span className="stat-t">Imballate</span></div>
             <div className="stat"><span className="stat-n">{piano.riepilogo.consegnate}</span><span className="stat-t">Dal cliente</span></div>
             <div className="stat"><span className="stat-n">{piano.riepilogo.rientrate}</span><span className="stat-t">Rientrate vuote</span></div>
             <div className="stat"><span className="stat-n">{piano.riepilogo.giaAggiornate}</span><span className="stat-t">Già aggiornate</span></div>
             <div className={`stat ${piano.riepilogo.anomalie ? 'allerta' : ''}`}><span className="stat-n">{piano.riepilogo.anomalie}</span><span className="stat-t">Segnalazioni</span></div>
-          </div>
+          </div>}
 
           {piano.anomalie.length > 0 && (
             <>
@@ -154,10 +167,10 @@ export default function ImportSmartsheet() {
             </>
           )}
 
-          {!daFare && <p className="nota">Nessuna novità rispetto a quanto già registrato.</p>}
+          {!daFare && !soloCommesse && <p className="nota">Nessuna novità rispetto a quanto già registrato.</p>}
           <div className="riga-bottoni">
-            <button className="btn btn-primary btn-big" disabled={!daFare || occupato} onClick={() => void applica()}>
-              {occupato ? 'Applico…' : 'Conferma e applica'}
+            <button className="btn btn-primary btn-big" disabled={(!daFare && !soloCommesse) || occupato} onClick={() => void applica()}>
+              {occupato ? 'Applico…' : soloCommesse ? 'Salva le commesse' : 'Conferma e applica'}
             </button>
             <button className="btn" onClick={() => { setLettura(null); setStato(null); }}>Annulla</button>
           </div>

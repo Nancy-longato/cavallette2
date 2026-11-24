@@ -29,6 +29,8 @@ export interface LetturaSmartsheet {
   righe: RigaSmartsheet[];
   colonneMancanti: string[];
   haDataCons: boolean;
+  /** il foglio ha le colonne dei movimenti delle cavallette (altrimenti si leggono solo le commesse) */
+  haMovimenti: boolean;
   foglio: string;
 }
 
@@ -58,11 +60,10 @@ const ALIAS = {
 type Campo = keyof typeof ALIAS;
 const OBBLIGATORI: { campo: Campo; nome: string }[] = [
   { campo: 'commessa', nome: 'COMMESSA' },
-  { campo: 'imballo', nome: 'IMBALLAGGIO' },
-  { campo: 'cavallette', nome: 'N° CAVALLETTE' },
-  { campo: 'ddtCons', nome: 'DDT CONS. RIENTRATO' },
-  { campo: 'ddtRientro', nome: 'DDT RIENTRO CAVALLETTA' },
 ];
+// Le colonne dei movimenti (IMBALLAGGIO, N° CAVALLETTE, DDT…) sono facoltative: nel nuovo foglio possono mancare,
+// i movimenti si registrano nell'app e dal foglio servono solo commessa, cliente e indirizzo.
+const COLONNE_MOVIMENTI: Campo[] = ['imballo', 'cavallette', 'ddtCons', 'ddtRientro'];
 
 export function aBooleano(c: Cella | undefined): boolean {
   if (c === true) return true;
@@ -100,6 +101,7 @@ export function leggiSmartsheet(fogli: Foglio[]): LetturaSmartsheet {
       righe: [],
       colonneMancanti: OBBLIGATORI.map((o) => o.nome),
       haDataCons: false,
+      haMovimenti: false,
       foglio: fogli[0]?.nome ?? '',
     };
   }
@@ -139,7 +141,7 @@ export function leggiSmartsheet(fogli: Foglio[]): LetturaSmartsheet {
       dataRientro: aDataIso(val(r, 'dataRientro')) ?? aDataIso(val(r, 'ddtRientro')),
     });
   }
-  return { righe, colonneMancanti, haDataCons: righe.some((x) => x.dataCons !== null || x.dataRientro !== null), foglio: foglio.nome };
+  return { righe, colonneMancanti, haDataCons: righe.some((x) => x.dataCons !== null || x.dataRientro !== null), haMovimenti: COLONNE_MOVIMENTI.some((c) => col[c] >= 0), foglio: foglio.nome };
 }
 
 // ---------------------------------------------------------------------------

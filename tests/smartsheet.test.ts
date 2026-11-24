@@ -274,3 +274,19 @@ test('intestazioni vere del foglio Longato: IMBALLAGGIO, N° CAVALLETTE, DATA CO
   assert.equal(p.cicli.find((x) => x.commessa === '26632')!.data_rientro, '2026-11-05');
   assert.equal(p.cicli.find((x) => x.commessa === '26632')!.data_consegna, '2026-11-03');
 });
+
+test('nuovo foglio senza le colonne dei movimenti: si leggono solo commessa, cliente, indirizzo', () => {
+  const l = leggiSmartsheet([{ nome: 'Commesse', righe: [
+    ['COMMESSA', 'CLIENTE', 'INDIRIZZO CANTIERE', 'PAESE', 'PROVINCIA'],
+    ['26040', 'ROSSI SRL', 'VIA ROMA 1', 'MESTRE', 'VE'],
+    ['26041', 'BIANCHI', null, null, null],
+  ] }]);
+  assert.deepEqual(l.colonneMancanti, []);
+  assert.equal(l.haMovimenti, false);
+  assert.equal(l.righe.length, 2);
+  assert.equal(l.righe[0].indirizzo, 'VIA ROMA 1, MESTRE (VE)');
+  assert.equal(l.righe[0].imballo, false);
+  const p = pianificaImport(l.righe, { cavallette: [], cicli: [] }, { oggi: OGGI, dal: null });
+  assert.equal(p.azioni.length, 0);
+  assert.equal(p.anomalie.length, 0);
+});
