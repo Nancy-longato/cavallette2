@@ -215,3 +215,4 @@ button.link { font: inherit; font-weight: 600; background: none; border: 0; padd
 .info-box.destra { left: auto; right: 0; }
 .barra-riepilogo .info-box { top: auto; bottom: calc(100% + 0.4rem); }
 .info:hover .info-box, .info:focus .info-box, .info:focus-within .info-box { display: block; }
+.col-numero { min-width: 6.5rem; white-space: nowrap; }

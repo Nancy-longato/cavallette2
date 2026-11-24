@@ -54,8 +54,8 @@ export default function CavallettaTable(props: Props) {
     return copia;
   }, [righe, ordine, oggi, chiusure, nomeVetreria]);
 
-  const Th = (p: { k: Chiave; children: string }) => (
-    <th onClick={() => setOrdine((o) => ({ chiave: p.k, su: o.chiave === p.k ? !o.su : true }))} className="ordinabile">
+  const Th = (p: { k: Chiave; children: string; larga?: boolean }) => (
+    <th onClick={() => setOrdine((o) => ({ chiave: p.k, su: o.chiave === p.k ? !o.su : true }))} className={`ordinabile ${p.larga ? 'col-numero' : ''}`}>
       {p.children}
       {ordine.chiave === p.k ? (ordine.su ? ' ▲' : ' ▼') : ''}
     </th>
@@ -68,7 +68,7 @@ export default function CavallettaTable(props: Props) {
       <table className="tabella">
         <thead>
           <tr>
-            <Th k="numero">N.</Th>
+            <Th k="numero" larga>N.</Th>
             <Th k="vetreria">Vetreria</Th>
             <Th k="luogo">Luogo</Th>
             <Th k="stato">Stato</Th>
@@ -87,7 +87,7 @@ export default function CavallettaTable(props: Props) {
             const cant = giorniInCantiere(c, oggi, chiusure);
             return (
               <tr key={c.id} onClick={() => onSeleziona(c)} className="cliccabile">
-                <td className="numero">{c.numero}</td>
+                <td className="numero col-numero">{c.numero}</td>
                 <td>{nomeVetreria(c.vetreria)}</td>
                 <td>{etichettaLuogo(c)}</td>
                 <td>
