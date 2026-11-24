@@ -72,7 +72,6 @@ export default function CavallettaTable(props: Props) {
             <Th k="vetreria">Vetreria</Th>
             <Th k="luogo">Luogo</Th>
             <Th k="stato">Stato</Th>
-            <Th k="ferma">Ferma da (gg)</Th>
             <Th k="commessa">Commessa</Th>
             <Th k="cliente">Cliente</Th>
             <th>Indirizzo</th>
@@ -93,10 +92,7 @@ export default function CavallettaTable(props: Props) {
                 <td>{etichettaLuogo(c)}</td>
                 <td>
                   <Badge tono={tonoStato(c, allerta)}>{etichettaStato(c, allerta)}</Badge>
-                </td>
-                <td className="num" title={`Nello step «${NOMI_STEP[stepDi(c)]}»`}>
-                  <strong>{giorniNelloStep(c, oggi)}</strong>
-                  <div className="sotto">{NOMI_STEP[stepDi(c)]}</div>
+                  <span className="fermo" title={`Ferma da ${giorniNelloStep(c, oggi)} giorni nello step «${NOMI_STEP[stepDi(c)]}»`}>{giorniNelloStep(c, oggi)} gg</span>
                 </td>
                 <td>{c.commessa}</td>
                 <td>{c.cliente}</td>
