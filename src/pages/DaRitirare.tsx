@@ -22,7 +22,7 @@ function oreTesto(ore: number): string {
 export default function DaRitirare() {
   const { cavallette, oggi, chiusure, soglia, oreGiro, nomeVetreria, errore, ricarica } = useDati();
   const { profilo } = useAuth();
-  const puoProgrammare = profilo?.ruolo === 'admin' || profilo?.ruolo === 'ufficio' || profilo?.ruolo === 'logistica';
+  const puoProgrammare = profilo?.ruolo === 'admin' || profilo?.ruolo === 'ufficio' || profilo?.ruolo === 'logistica' || profilo?.ruolo === 'autista';
   const [copiato, setCopiato] = useState(false);
   const [modoGiro, setModoGiro] = useState(false);
   const [scelte, setScelte] = useState<Set<string>>(new Set());

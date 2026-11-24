@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { AuthProvider, useAuth } from './lib/auth.tsx';
 import { DatiProvider, useDati } from './lib/dati.tsx';
@@ -28,10 +28,11 @@ interface Rotta {
 }
 
 const STAFF: Ruolo[] = ['admin', 'ufficio', 'logistica', 'amministrazione'];
+const CON_AUTISTI: Ruolo[] = [...STAFF, 'autista'];
 const ROTTE: Rotta[] = [
-  { path: '/', titolo: 'Cruscotto', ruoli: STAFF, el: () => <Dashboard /> },
-  { path: '/da-ritirare', titolo: 'Da ritirare', ruoli: STAFF, el: () => <DaRitirare /> },
-  { path: '/da-consegnare', titolo: 'Da consegnare', ruoli: STAFF, el: () => <DaConsegnare /> },
+  { path: '/', titolo: 'Cruscotto', ruoli: [...CON_AUTISTI, 'magazziniere'], el: () => <Dashboard /> },
+  { path: '/da-ritirare', titolo: 'Da ritirare', ruoli: CON_AUTISTI, el: () => <DaRitirare /> },
+  { path: '/da-consegnare', titolo: 'Da consegnare', ruoli: CON_AUTISTI, el: () => <DaConsegnare /> },
   { path: '/produzione', titolo: 'Produzione', ruoli: ['admin', 'ufficio', 'produzione'], el: () => <Produzione /> },
   { path: '/segnalazioni', titolo: 'Segnalazioni', ruoli: STAFF, el: () => <Segnalazioni /> },
   { path: '/arrivi', titolo: 'Arrivo vetri', ruoli: ['admin', 'ufficio'], el: () => <Arrivi /> },
@@ -50,14 +51,19 @@ function Guscio() {
   const permesse = ROTTE.filter((r) => r.ruoli.includes(ruolo));
   const corrente = permesse.find((r) => r.path === rotta);
 
+  const iniziale = useRef(false);
   const nDaRitirare = useMemo(
-    () => (!STAFF.includes(ruolo) ? 0 : cavallette.filter((c) => daRitirare(c, oggi, chiusure, soglia)).length),
+    () => (!CON_AUTISTI.includes(ruolo) ? 0 : cavallette.filter((c) => daRitirare(c, oggi, chiusure, soglia)).length),
     [cavallette, oggi, chiusure, soglia, ruolo],
   );
 
   useEffect(() => {
-    if (!corrente && permesse.length) vai(permesse[0].path);
-  }, [corrente, permesse]);
+    // il magazziniere parte dalla Restituzione, gli altri dalla prima schermata permessa
+    const prima = ruolo === 'magazziniere' ? permesse.find((r) => r.path === '/restituzione') ?? permesse[0] : permesse[0];
+    if (!corrente && permesse.length) vai(prima.path);
+    else if (ruolo === 'magazziniere' && !iniziale.current && corrente?.path === '/') vai('/restituzione');
+    if (permesse.length) iniziale.current = true;
+  }, [corrente, permesse, ruolo]);
 
   if (!permesse.length) {
     return (

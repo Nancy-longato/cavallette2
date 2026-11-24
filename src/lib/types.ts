@@ -1,4 +1,4 @@
-export type Ruolo = 'admin' | 'ufficio' | 'logistica' | 'amministrazione' | 'magazziniere' | 'produzione' | 'nessuno';
+export type Ruolo = 'admin' | 'ufficio' | 'logistica' | 'amministrazione' | 'magazziniere' | 'produzione' | 'autista' | 'nessuno';
 export type Luogo = 'piazzale' | 'cliente';
 export type Stato = 'piena_vetri' | 'piena_serramenti' | 'vuota';
 

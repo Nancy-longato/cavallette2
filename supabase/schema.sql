@@ -6,7 +6,7 @@
 
 -- ---------- RUOLI ----------------------------------------------------
 do $$ begin
-  create type public.ruolo_app as enum ('admin', 'ufficio', 'logistica', 'amministrazione', 'magazziniere', 'produzione', 'nessuno');
+  create type public.ruolo_app as enum ('admin', 'ufficio', 'logistica', 'amministrazione', 'magazziniere', 'produzione', 'autista', 'nessuno');
 exception when duplicate_object then null; end $$;
 
 create table if not exists public.profili (
@@ -202,15 +202,9 @@ create policy impostazioni_admin on public.impostazioni for all to authenticated
 -- cavallette
 drop policy if exists cavallette_select_staff on public.cavallette;
 create policy cavallette_select_staff on public.cavallette for select to authenticated
-  using (public.ruolo_corrente() in ('admin', 'ufficio', 'logistica', 'amministrazione'));
--- il magazziniere vede SOLO le cavallette vuote, in piazzale, restituibili
+  using (public.ruolo_corrente() in ('admin', 'ufficio', 'logistica', 'amministrazione', 'autista', 'magazziniere'));
+-- (il magazziniere e gli autisti vedono il Cruscotto; modificano solo tramite le funzioni qui sotto)
 drop policy if exists cavallette_select_magazziniere on public.cavallette;
-create policy cavallette_select_magazziniere on public.cavallette for select to authenticated
-  using (
-    public.ruolo_corrente() = 'magazziniere'
-    and not restituita and stato = 'vuota' and luogo = 'piazzale'
-    and exists (select 1 from public.vetrerie v where v.codice = vetreria and v.restituibile)
-  );
 drop policy if exists cavallette_insert on public.cavallette;
 create policy cavallette_insert on public.cavallette for insert to authenticated
   with check (public.ruolo_corrente() in ('admin', 'ufficio'));
@@ -234,7 +228,7 @@ create policy cicli_write on public.cicli for all to authenticated
 -- eventi
 drop policy if exists eventi_select on public.eventi;
 create policy eventi_select on public.eventi for select to authenticated
-  using (public.ruolo_corrente() in ('admin', 'ufficio', 'logistica', 'amministrazione'));
+  using (public.ruolo_corrente() in ('admin', 'ufficio', 'logistica', 'amministrazione', 'autista', 'magazziniere'));
 drop policy if exists eventi_insert on public.eventi;
 create policy eventi_insert on public.eventi for insert to authenticated
   with check (public.ruolo_corrente() in ('admin', 'ufficio', 'amministrazione'));
@@ -494,7 +488,7 @@ create or replace function public.programma_giro(p_ids uuid[]) returns int
 language plpgsql security definer set search_path = public as $$
 declare v_ids uuid[]; v_ok int;
 begin
-  if public.ruolo_corrente() not in ('admin', 'ufficio', 'logistica') then raise exception 'Non autorizzato'; end if;
+  if public.ruolo_corrente() not in ('admin', 'ufficio', 'logistica', 'autista') then raise exception 'Non autorizzato'; end if;
   select coalesce(array_agg(distinct x), '{}') into v_ids from unnest(p_ids) as x;
   if cardinality(v_ids) = 0 then raise exception 'Nessuna cavalletta selezionata'; end if;
   select count(*) into v_ok from cavallette where id = any (v_ids) and not restituita and luogo = 'cliente' and in_giro_il is null;
@@ -509,7 +503,7 @@ create or replace function public.annulla_giro(p_ids uuid[]) returns int
 language plpgsql security definer set search_path = public as $$
 declare v_ids uuid[]; v_ok int;
 begin
-  if public.ruolo_corrente() not in ('admin', 'ufficio', 'logistica') then raise exception 'Non autorizzato'; end if;
+  if public.ruolo_corrente() not in ('admin', 'ufficio', 'logistica', 'autista') then raise exception 'Non autorizzato'; end if;
   select coalesce(array_agg(distinct x), '{}') into v_ids from unnest(p_ids) as x;
   if cardinality(v_ids) = 0 then raise exception 'Nessuna cavalletta selezionata'; end if;
   select count(*) into v_ok from cavallette where id = any (v_ids) and luogo = 'cliente' and in_giro_il is not null;
@@ -546,7 +540,7 @@ create or replace function public.consegna_cavallette(p_commessa text, p_ddt tex
 language plpgsql security definer set search_path = public as $$
 declare v_ids uuid[]; v_ok int; v_oggi date := (timezone('Europe/Rome', now()))::date;
 begin
-  if public.ruolo_corrente() not in ('admin', 'ufficio', 'logistica') then raise exception 'Non autorizzato'; end if;
+  if public.ruolo_corrente() not in ('admin', 'ufficio', 'logistica', 'autista') then raise exception 'Non autorizzato'; end if;
   if coalesce(trim(p_ddt), '') = '' then raise exception 'Inserisci il DDT dell''amministrazione'; end if;
   select coalesce(array_agg(distinct x), '{}') into v_ids from unnest(p_ids) as x;
   if cardinality(v_ids) = 0 then raise exception 'Nessuna cavalletta selezionata'; end if;

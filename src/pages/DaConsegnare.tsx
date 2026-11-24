@@ -22,7 +22,7 @@ interface Gruppo {
 export default function DaConsegnare() {
   const { cavallette, oggi, nomeVetreria, errore, ricarica } = useDati();
   const { profilo } = useAuth();
-  const puoConsegnare = profilo?.ruolo === 'admin' || profilo?.ruolo === 'ufficio' || profilo?.ruolo === 'logistica';
+  const puoConsegnare = profilo?.ruolo === 'admin' || profilo?.ruolo === 'ufficio' || profilo?.ruolo === 'logistica' || profilo?.ruolo === 'autista';
   const [ddt, setDdt] = useState<Record<string, string>>({});
   const [occupato, setOccupato] = useState(false);
   const [errAzione, setErrAzione] = useState<string | null>(null);
