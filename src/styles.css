@@ -201,6 +201,17 @@ summary { cursor: pointer; }
 .riga-manuale { background: var(--rosso-bg); }
 label.inline { display: inline-flex; flex-direction: row; align-items: center; gap: 0.4rem; font-size: 0.9rem; }
 button.link { font: inherit; font-weight: 600; background: none; border: 0; padding: 0; color: var(--azzurro); cursor: pointer; text-decoration: underline; }
-.stat-tempo { color: var(--sotto); font-size: 0.75rem; margin-top: 0.15rem; }
 .num-corto { width: 4.5rem; }
 .fermo { margin-left: 0.4rem; font-size: 0.72rem; color: var(--sotto); white-space: nowrap; }
+
+/* ---- «i» informativa ---- */
+.stat-wrap { position: relative; display: flex; }
+.stat-wrap .stat { flex: 1; }
+.stat-wrap .info { position: absolute; top: 0.55rem; right: 0.6rem; }
+.info { position: relative; display: inline-flex; align-items: center; vertical-align: middle; outline: none; cursor: help; }
+.info-i { width: 1.15rem; height: 1.15rem; border: 1.5px solid var(--sotto); border-radius: 50%; color: var(--sotto); font-size: 0.72rem; font-weight: 700; font-style: italic; font-family: Georgia, serif; line-height: 1; display: inline-flex; align-items: center; justify-content: center; background: var(--carta); }
+.info:hover .info-i, .info:focus .info-i { border-color: var(--azzurro); color: var(--azzurro); }
+.info-box { display: none; position: absolute; z-index: 30; top: calc(100% + 0.4rem); left: 0; width: max-content; max-width: 16rem; padding: 0.55rem 0.75rem; background: var(--petrolio); color: #fff; border-radius: 8px; font-size: 0.8rem; font-style: normal; font-weight: 400; line-height: 1.35; text-align: left; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2); }
+.info-box.destra { left: auto; right: 0; }
+.barra-riepilogo .info-box { top: auto; bottom: calc(100% + 0.4rem); }
+.info:hover .info-box, .info:focus .info-box, .info:focus-within .info-box { display: block; }

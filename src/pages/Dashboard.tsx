@@ -6,7 +6,7 @@ import { useDati } from '../lib/dati.tsx';
 import { Link } from '../lib/router.tsx';
 import CavallettaTable from '../components/CavallettaTable.tsx';
 import CavallettaDialog from '../components/CavallettaDialog.tsx';
-import { Messaggio, Titolo } from '../components/ui.tsx';
+import { Info, Messaggio, Titolo } from '../components/ui.tsx';
 
 type Gruppo = 'tutte' | 'fornitori' | 'interne';
 type Filtro = 'tutti' | 'vetri' | 'serramenti_piazzale' | 'cliente' | 'in_giro' | 'vuote' | 'da_ritirare';
@@ -94,17 +94,22 @@ export default function Dashboard() {
 
       <div className="stats">
         {schede.map((s) => (
-          <button
-            key={s.f}
-            className={`stat ${filtro === s.f ? 'attivo' : ''} ${s.classe && conta(s.f) > 0 ? s.classe : ''}`}
-            onClick={() => setFiltro(filtro === s.f ? 'tutti' : s.f)}
-          >
-            <span className="stat-n">{conta(s.f)}</span>
-            <span className="stat-t">{s.titolo}</span>
+          <div key={s.f} className="stat-wrap">
+            <button
+              className={`stat ${filtro === s.f ? 'attivo' : ''} ${s.classe && conta(s.f) > 0 ? s.classe : ''}`}
+              onClick={() => setFiltro(filtro === s.f ? 'tutti' : s.f)}
+            >
+              <span className="stat-n">{conta(s.f)}</span>
+              <span className="stat-t">{s.titolo}</span>
+            </button>
             {s.f !== 'tutti' && s.f !== 'da_ritirare' && tempi(s.f) && (
-              <span className="stat-tempo">ferme in media {tempi(s.f)!.media} gg · max {tempi(s.f)!.max}</span>
+              <Info etichetta={`Tempi di fermo: ${s.titolo}`} allineaDestra>
+                Ferme in questo step
+                <br />
+                in media <strong>{tempi(s.f)!.media} gg</strong> · al massimo <strong>{tempi(s.f)!.max} gg</strong>
+              </Info>
             )}
-          </button>
+          </div>
         ))}
       </div>
 

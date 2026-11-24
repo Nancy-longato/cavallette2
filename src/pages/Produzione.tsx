@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { cercaCommessa, imballa } from '../lib/api.ts';
 import { useDati } from '../lib/dati.tsx';
 import { chiaveDaCodice, confrontaNumeri, trovaNumero } from '../lib/keys.ts';
-import { Badge, Messaggio, Titolo } from '../components/ui.tsx';
+import { Info, Messaggio, Titolo } from '../components/ui.tsx';
 
 export default function Produzione() {
   const { cavallette, vetrerie, nomeVetreria, errore, ricarica } = useDati();
@@ -175,7 +175,7 @@ export default function Produzione() {
           )}
         </div>
         <div className="riga-bottoni">
-          <Badge tono="giallo">diventano «piena di serramenti» in piazzale</Badge>
+          <Info etichetta="Cosa succede all'invio" allineaDestra>Le cavallette risultano «piena di serramenti» in piazzale.</Info>
           <button className="btn btn-primary btn-big" disabled={scelte.length === 0 || !commessa.trim() || occupato} onClick={() => void invia()}>
             {occupato ? 'Invio…' : 'Segna come imballate'}
           </button>

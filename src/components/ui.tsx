@@ -6,6 +6,16 @@ export function Badge(props: { tono: Tono; children: ReactNode }) {
   return <span className={`badge badge-${props.tono}`}>{props.children}</span>;
 }
 
+/** Piccola «i» cerchiata: il testo compare passandoci sopra o toccandola */
+export function Info(props: { children: ReactNode; etichetta?: string; allineaDestra?: boolean }) {
+  return (
+    <span className="info" tabIndex={0} role="note" aria-label={props.etichetta ?? 'Informazioni'}>
+      <span className="info-i" aria-hidden="true">i</span>
+      <span className={`info-box ${props.allineaDestra ? 'destra' : ''}`}>{props.children}</span>
+    </span>
+  );
+}
+
 export function Messaggio(props: { tipo: 'errore' | 'ok' | 'info' | 'avviso'; children: ReactNode }) {
   return <div className={`messaggio messaggio-${props.tipo}`}>{props.children}</div>;
 }
