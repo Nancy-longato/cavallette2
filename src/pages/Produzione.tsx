@@ -14,8 +14,6 @@ export default function Produzione() {
   const [vetreria, setVetreria] = useState('');
   const [codice, setCodice] = useState('');
   const [scelte, setScelte] = useState<{ numero: string; carico: string[] }[]>([]);
-  // carico che hanno le cavallette appena aggiunte (poi si cambia cavalletta per cavalletta)
-  const [predefinito, setPredefinito] = useState<string[]>(['serramenti']);
   const [occupato, setOccupato] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [esito, setEsito] = useState<string | null>(null);
@@ -54,7 +52,7 @@ export default function Produzione() {
   }, [commessa]);
 
   function aggiungi(numero: string): void {
-    setScelte((s) => (s.some((x) => x.numero === numero) ? s : [...s, { numero, carico: predefinito }]));
+    setScelte((s) => (s.some((x) => x.numero === numero) ? s : [...s, { numero, carico: ['serramenti'] }]));
   }
 
   function aggiungiDaCodice(): void {
@@ -111,7 +109,7 @@ export default function Produzione() {
 
   return (
     <>
-      <Titolo titolo="Produzione: imballo commessa" sotto="Scrivi la commessa, scegli cosa hai caricato (serramenti, solo vetri, portoncino…) e la vetreria e il numero di ogni cavalletta." />
+      <Titolo titolo="Produzione: imballo commessa" sotto="Scrivi la commessa, scegli la vetreria e il numero di ogni cavalletta e indica cosa c'è sopra (serramenti, solo vetri, portoncino…)." />
       {errore && <Messaggio tipo="errore">{errore}</Messaggio>}
       {err && <Messaggio tipo="errore">{err}</Messaggio>}
       {esito && <Messaggio tipo="ok">{esito}</Messaggio>}
@@ -133,19 +131,7 @@ export default function Produzione() {
       </div>
 
       <div className="card">
-        <h2>2. Cosa carichi (valore iniziale)</h2>
-        <p className="nota">È il carico che avranno le cavallette che aggiungi. Poi lo cambi cavalletta per cavalletta nell'elenco in fondo (anche più voci, es. serramenti + scuri; per soli vetri scegli «Vetri»).</p>
-        <div className="chip-lista">
-          {CARICHI.map((c) => (
-            <button key={c.k} className={`chip ${predefinito.includes(c.k) ? 'chip-scelto' : ''}`} onClick={() => setPredefinito(predefinito.includes(c.k) ? predefinito.filter((x) => x !== c.k) : [...predefinito, c.k])}>
-              {c.nome}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="card">
-        <h2>3. Quali cavallette</h2>
+        <h2>2. Quali cavallette</h2>
         <div className="segmenti">
           {vetrerie.map((v) => (
             <button key={v.codice} className={`segmento ${vetreria === v.codice ? 'attivo' : ''}`} onClick={() => setVetreria(vetreria === v.codice ? '' : v.codice)}>
@@ -182,9 +168,9 @@ export default function Produzione() {
       </div>
 
       <div className="card">
-        <h2>4. Cosa c'è su ogni cavalletta</h2>
+        <h2>3. Cosa c'è su ogni cavalletta</h2>
         {scelte.length === 0 ? (
-          <p className="nota">Aggiungi le cavallette qui sopra: per ognuna scegli il suo carico.</p>
+          <p className="nota">Aggiungi le cavallette qui sopra: ognuna parte con «Serramenti», cambia se serve (anche più voci).</p>
         ) : (
           <ul className="lista-carico">
             {scelte.map((x) => (
