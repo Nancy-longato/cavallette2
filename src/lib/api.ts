@@ -242,8 +242,10 @@ export async function consegna(commessa: string, ddt: string, ids: string[]): Pr
   ok(await supabase.rpc('consegna_cavallette', { p_commessa: commessa, p_ddt: ddt, p_ids: ids }));
 }
 
-export async function imballa(commessa: string, cliente: string, indirizzo: string, numeri: string[], carico: string[]): Promise<void> {
-  ok(await supabase.rpc('imballa_cavallette', { p_commessa: commessa, p_cliente: cliente, p_indirizzo: indirizzo, p_numeri: numeri, p_carico: carico }));
+/** Ogni cavalletta ha il suo carico: `scelte` = numero e cosa c'è sopra */
+export async function imballa(commessa: string, cliente: string, indirizzo: string, scelte: { numero: string; carico: string[] }[]): Promise<void> {
+  const carichi = Object.fromEntries(scelte.map((s) => [s.numero, s.carico]));
+  ok(await supabase.rpc('imballa_cavallette', { p_commessa: commessa, p_cliente: cliente, p_indirizzo: indirizzo, p_numeri: scelte.map((s) => s.numero), p_carico: null, p_carichi: carichi }));
 }
 
 export async function cercaCommessa(commessa: string): Promise<Commessa | null> {

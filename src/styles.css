@@ -216,3 +216,8 @@ button.link { font: inherit; font-weight: 600; background: none; border: 0; padd
 .barra-riepilogo .info-box { top: auto; bottom: calc(100% + 0.4rem); }
 .info:hover .info-box, .info:focus .info-box, .info:focus-within .info-box { display: block; }
 .col-numero { min-width: 6.5rem; white-space: nowrap; }
+
+.lista-carico { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.9rem; }
+.lista-carico li { padding-bottom: 0.9rem; border-bottom: 1px solid var(--bordo); }
+.lista-carico li:last-child { border-bottom: 0; padding-bottom: 0; }
+.lista-carico-testa { display: flex; justify-content: space-between; align-items: baseline; }

@@ -13,8 +13,9 @@ export default function Produzione() {
   const [trovata, setTrovata] = useState<'si' | 'no' | null>(null);
   const [vetreria, setVetreria] = useState('');
   const [codice, setCodice] = useState('');
-  const [scelte, setScelte] = useState<string[]>([]);
-  const [carico, setCarico] = useState<string[]>(['serramenti']);
+  const [scelte, setScelte] = useState<{ numero: string; carico: string[] }[]>([]);
+  // carico che hanno le cavallette appena aggiunte (poi si cambia cavalletta per cavalletta)
+  const [predefinito, setPredefinito] = useState<string[]>(['serramenti']);
   const [occupato, setOccupato] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [esito, setEsito] = useState<string | null>(null);
@@ -53,7 +54,7 @@ export default function Produzione() {
   }, [commessa]);
 
   function aggiungi(numero: string): void {
-    setScelte((s) => (s.includes(numero) ? s : [...s, numero]));
+    setScelte((s) => (s.some((x) => x.numero === numero) ? s : [...s, { numero, carico: predefinito }]));
   }
 
   function aggiungiDaCodice(): void {
@@ -81,14 +82,15 @@ export default function Produzione() {
       setErr('Scrivi il numero di commessa.');
       return;
     }
-    if (carico.length === 0) {
-      setErr('Scegli cosa carichi sulle cavallette (serramenti, vetri, portoncino, HST, scuri, alluminio).');
+    const senza = scelte.find((x) => x.carico.length === 0);
+    if (senza) {
+      setErr(`Scegli cosa c'è sulla cavalletta ${senza.numero} (serramenti, vetri, portoncino, HST, scuri, alluminio).`);
       return;
     }
     setOccupato(true);
     try {
-      await imballa(commessa.trim(), cliente, indirizzo, scelte, carico);
-      setEsito(`Commessa ${commessa.trim()}: ${scelte.length} ${scelte.length === 1 ? 'cavalletta pronta' : 'cavallette pronte'} (${nomiCarico(carico).toLowerCase()}), in piazzale.`);
+      await imballa(commessa.trim(), cliente, indirizzo, scelte);
+      setEsito(`Commessa ${commessa.trim()}: ${scelte.length} ${scelte.length === 1 ? 'cavalletta pronta' : 'cavallette pronte'} in piazzale (${scelte.map((x) => `${x.numero}: ${nomiCarico(x.carico).toLowerCase()}`).join('; ')}).`);
       setScelte([]);
       setCommessa('');
       setCliente('');
@@ -131,11 +133,11 @@ export default function Produzione() {
       </div>
 
       <div className="card">
-        <h2>2. Cosa carichi</h2>
-        <p className="nota">Si può scegliere più di una voce (es. serramenti + scuri). Per una consegna di soli vetri scegli «Vetri».</p>
+        <h2>2. Cosa carichi (valore iniziale)</h2>
+        <p className="nota">È il carico che avranno le cavallette che aggiungi. Poi lo cambi cavalletta per cavalletta nell'elenco in fondo (anche più voci, es. serramenti + scuri; per soli vetri scegli «Vetri»).</p>
         <div className="chip-lista">
           {CARICHI.map((c) => (
-            <button key={c.k} className={`chip ${carico.includes(c.k) ? 'chip-scelto' : ''}`} onClick={() => setCarico(carico.includes(c.k) ? carico.filter((x) => x !== c.k) : [...carico, c.k])}>
+            <button key={c.k} className={`chip ${predefinito.includes(c.k) ? 'chip-scelto' : ''}`} onClick={() => setPredefinito(predefinito.includes(c.k) ? predefinito.filter((x) => x !== c.k) : [...predefinito, c.k])}>
               {c.nome}
             </button>
           ))}
@@ -143,7 +145,7 @@ export default function Produzione() {
       </div>
 
       <div className="card">
-        <h2>3. Cavallette usate</h2>
+        <h2>3. Quali cavallette</h2>
         <div className="segmenti">
           {vetrerie.map((v) => (
             <button key={v.codice} className={`segmento ${vetreria === v.codice ? 'attivo' : ''}`} onClick={() => setVetreria(vetreria === v.codice ? '' : v.codice)}>
@@ -172,28 +174,49 @@ export default function Produzione() {
         <div className="chip-lista">
           {proposte.length === 0 && <span className="nota">Nessuna cavalletta disponibile.</span>}
           {proposte.map((c) => (
-            <button key={c.id} className={`chip ${scelte.includes(c.numero) ? 'chip-scelto' : ''}`} onClick={() => (scelte.includes(c.numero) ? setScelte(scelte.filter((n) => n !== c.numero)) : aggiungi(c.numero))}>
+            <button key={c.id} className={`chip ${scelte.some((x) => x.numero === c.numero) ? 'chip-scelto' : ''}`} onClick={() => (scelte.some((x) => x.numero === c.numero) ? setScelte(scelte.filter((x) => x.numero !== c.numero)) : aggiungi(c.numero))}>
               {c.numero} {c.stato === 'piena_vetri' ? '· vetri' : '· vuota'}
             </button>
           ))}
         </div>
       </div>
 
+      <div className="card">
+        <h2>4. Cosa c'è su ogni cavalletta</h2>
+        {scelte.length === 0 ? (
+          <p className="nota">Aggiungi le cavallette qui sopra: per ognuna scegli il suo carico.</p>
+        ) : (
+          <ul className="lista-carico">
+            {scelte.map((x) => (
+              <li key={x.numero}>
+                <div className="lista-carico-testa">
+                  <strong className="numero">{x.numero}</strong>
+                  <button className="link" onClick={() => setScelte(scelte.filter((y) => y.numero !== x.numero))}>Togli</button>
+                </div>
+                <div className="chip-lista">
+                  {CARICHI.map((c) => (
+                    <button
+                      key={c.k}
+                      className={`chip ${x.carico.includes(c.k) ? 'chip-scelto' : ''}`}
+                      onClick={() => setScelte(scelte.map((y) => (y.numero === x.numero ? { ...y, carico: y.carico.includes(c.k) ? y.carico.filter((k) => k !== c.k) : [...y.carico, c.k] } : y)))}
+                    >
+                      {c.nome}
+                    </button>
+                  ))}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       <div className="barra-riepilogo">
         <div>
           <strong>{scelte.length} {scelte.length === 1 ? 'cavalletta' : 'cavallette'}</strong>
-          {scelte.length > 0 ? (
-            <div className="chip-lista">
-              {scelte.map((n) => (
-                <button key={n} className="chip chip-scelto" onClick={() => setScelte(scelte.filter((x) => x !== n))}>{n} ✕</button>
-              ))}
-            </div>
-          ) : (
-            <div className="sotto">Nessuna cavalletta aggiunta</div>
-          )}
+          <div className="sotto">{scelte.length ? 'Ognuna con il suo carico' : 'Nessuna cavalletta aggiunta'}</div>
         </div>
         <div className="riga-bottoni">
-          <Info etichetta="Cosa succede all'invio" allineaDestra>Le cavallette risultano piene (con quello che hai indicato) in piazzale, pronte da consegnare.</Info>
+          <Info etichetta="Cosa succede all'invio" allineaDestra>Le cavallette risultano piene (con quello che hai indicato per ognuna) in piazzale, pronte da consegnare.</Info>
           <button className="btn btn-primary btn-big" disabled={scelte.length === 0 || !commessa.trim() || occupato} onClick={() => void invia()}>
             {occupato ? 'Invio…' : 'Segna come pronte'}
           </button>

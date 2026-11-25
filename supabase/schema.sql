@@ -575,16 +575,17 @@ end $$;
 
 -- ---------- PRODUZIONE: imballo di una commessa ----------------------
 drop function if exists public.imballa_cavallette(text, text, text, text[]);
-create or replace function public.imballa_cavallette(p_commessa text, p_cliente text, p_indirizzo text, p_numeri text[], p_carico text[] default array['serramenti']) returns int
+drop function if exists public.imballa_cavallette(text, text, text, text[], text[]);
+create or replace function public.imballa_cavallette(p_commessa text, p_cliente text, p_indirizzo text, p_numeri text[],
+    p_carico text[] default array['serramenti'], p_carichi jsonb default null) returns int
 language plpgsql security definer set search_path = public as $$
 declare v_num text[]; v_ids uuid[]; v_mancano text[]; v_cl text := nullif(trim(p_cliente), ''); v_ind text := nullif(trim(p_indirizzo), '');
-        v_car text[];
+        v_def text[]; v_car text[]; v_n text; v_c cavallette;
+        v_valori constant text[] := array['vetri', 'serramenti', 'portoncino', 'hst', 'scuri', 'alluminio'];
 begin
   if public.ruolo_corrente() not in ('admin', 'ufficio', 'produzione') then raise exception 'Non autorizzato'; end if;
   if coalesce(trim(p_commessa), '') = '' then raise exception 'Inserisci il numero di commessa'; end if;
-  select coalesce(array_agg(distinct x order by x), '{}') into v_car from unnest(p_carico) as x;
-  if cardinality(v_car) = 0 then raise exception 'Scegli cosa carichi sulla cavalletta (vetri, serramenti, portoncino, HST, scuri, alluminio)'; end if;
-  if not (v_car <@ array['vetri', 'serramenti', 'portoncino', 'hst', 'scuri', 'alluminio']::text[]) then raise exception 'Tipo di carico non valido'; end if;
+  select coalesce(array_agg(distinct x order by x), '{}') into v_def from unnest(coalesce(p_carico, '{}')) as x;
   select coalesce(array_agg(distinct x), '{}') into v_num from unnest(p_numeri) as x;
   if cardinality(v_num) = 0 then raise exception 'Nessuna cavalletta selezionata'; end if;
   select coalesce(array_agg(id), '{}') into v_ids from cavallette
@@ -594,14 +595,23 @@ begin
      where n not in (select numero from cavallette where id = any (v_ids));
     raise exception 'Cavallette non trovate o non disponibili in piazzale: %', array_to_string(v_mancano, ', ');
   end if;
-  update cavallette set stato = 'piena_serramenti', carico = v_car, commessa = trim(p_commessa), cliente = v_cl, indirizzo = v_ind, contenuto = null
-   where id = any (v_ids);
+  -- ogni cavalletta ha il suo carico (p_carichi = {"P-E82": ["vetri"], "62": ["serramenti","scuri"]}); se manca vale p_carico
+  for v_c in select * from cavallette where id = any (v_ids) loop
+    if p_carichi is not null and p_carichi ? v_c.numero and jsonb_typeof(p_carichi -> v_c.numero) = 'array' then
+      select coalesce(array_agg(distinct x order by x), '{}') into v_car from jsonb_array_elements_text(p_carichi -> v_c.numero) x;
+    else
+      v_car := v_def;
+    end if;
+    if cardinality(v_car) = 0 then raise exception 'Scegli cosa carichi sulla cavalletta %', v_c.numero; end if;
+    if not (v_car <@ v_valori) then raise exception 'Tipo di carico non valido per %', v_c.numero; end if;
+    update cavallette set stato = 'piena_serramenti', carico = v_car, commessa = trim(p_commessa), cliente = v_cl, indirizzo = v_ind, contenuto = null
+     where id = v_c.id;
+    insert into eventi (cavalletta_id, tipo, dettaglio, utente)
+    values (v_c.id, 'imballata', jsonb_build_object('commessa', trim(p_commessa), 'cliente', v_cl, 'fonte', 'produzione', 'carico', to_jsonb(v_car)), auth.uid());
+  end loop;
   insert into cicli (cavalletta_id, commessa, fase, cliente, indirizzo)
   select id, trim(p_commessa), 1, v_cl, v_ind from cavallette where id = any (v_ids)
   on conflict (cavalletta_id, commessa) do nothing;
-  insert into eventi (cavalletta_id, tipo, dettaglio, utente)
-  select id, 'imballata', jsonb_build_object('commessa', trim(p_commessa), 'cliente', v_cl, 'fonte', 'produzione', 'carico', to_jsonb(v_car)), auth.uid()
-    from cavallette where id = any (v_ids);
   if v_cl is not null or v_ind is not null then
     insert into commesse (commessa, cliente, indirizzo) values (trim(p_commessa), v_cl, v_ind)
     on conflict (commessa) do update set cliente = coalesce(excluded.cliente, commesse.cliente),
@@ -609,6 +619,8 @@ begin
   end if;
   return cardinality(v_ids);
 end $$;
+revoke all on function public.imballa_cavallette(text, text, text, text[], text[], jsonb) from public, anon;
+grant execute on function public.imballa_cavallette(text, text, text, text[], text[], jsonb) to authenticated;
 
 create or replace function public.correggi_cavalletta(p_id uuid, p_patch jsonb, p_motivo text default null) returns void
 language plpgsql security definer set search_path = public as $$
@@ -655,10 +667,10 @@ begin
 end $$;
 
 revoke all on function public.programma_giro(uuid[], text), public.annulla_giro(uuid[]), public.chiudi_giri_scaduti(),
-  public.consegna_cavallette(text, text, uuid[]), public.imballa_cavallette(text, text, text, text[], text[]),
+  public.consegna_cavallette(text, text, uuid[]), public.imballa_cavallette(text, text, text, text[], text[], jsonb),
   public.correggi_cavalletta(uuid, jsonb, text), public.elimina_cavalletta(uuid, text) from public, anon;
 grant execute on function public.programma_giro(uuid[], text), public.annulla_giro(uuid[]), public.chiudi_giri_scaduti(),
-  public.consegna_cavallette(text, text, uuid[]), public.imballa_cavallette(text, text, text, text[], text[]),
+  public.consegna_cavallette(text, text, uuid[]), public.imballa_cavallette(text, text, text, text[], text[], jsonb),
   public.correggi_cavalletta(uuid, jsonb, text), public.elimina_cavalletta(uuid, text) to authenticated;
 
 -- Controllo automatico ogni 10 minuti (se l'estensione pg_cron è disponibile).
