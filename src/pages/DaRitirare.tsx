@@ -29,6 +29,8 @@ export default function DaRitirare() {
   const [occupato, setOccupato] = useState(false);
   const [errAzione, setErrAzione] = useState<string | null>(null);
   const [esito, setEsito] = useState<string | null>(null);
+  const [motivo, setMotivo] = useState('');
+  const [cercaAnt, setCercaAnt] = useState('');
 
   const righe = useMemo<Riga[]>(
     () =>
@@ -66,8 +68,23 @@ export default function DaRitirare() {
     [cavallette],
   );
 
-  const scegliibili = useMemo(() => new Set([...righe, ...inArrivo].map((r) => r.c.id)), [righe, inArrivo]);
+  // caso eccezionale: anche le cavallette dal cliente da meno di 10 giorni si possono ritirare in anticipo
+  const anticipate = useMemo(() => {
+    const gia = new Set([...righe, ...inArrivo].map((r) => r.c.id));
+    return cavallette
+      .filter((c) => c.luogo === 'cliente' && !inGiro(c) && !gia.has(c.id))
+      .map((c) => ({ c, giorni: giorniInCantiere(c, oggi, chiusure) ?? 0 }))
+      .sort((a, b) => b.giorni - a.giorni);
+  }, [cavallette, righe, inArrivo, oggi, chiusure]);
+  const anticipateVisibili = useMemo(() => {
+    const q = cercaAnt.trim().toLowerCase();
+    if (!q) return anticipate;
+    return anticipate.filter(({ c }) => [c.numero, c.cliente, c.commessa, c.indirizzo].some((v) => (v ?? '').toLowerCase().includes(q)));
+  }, [anticipate, cercaAnt]);
+
+  const scegliibili = useMemo(() => new Set([...righe, ...inArrivo, ...anticipate].map((r) => r.c.id)), [righe, inArrivo, anticipate]);
   const nScelte = [...scelte].filter((id) => scegliibili.has(id)).length;
+  const nAnticipate = anticipate.filter(({ c }) => scelte.has(c.id)).length;
 
   function alterna(id: string): void {
     setScelte((s) => {
@@ -90,16 +107,22 @@ export default function DaRitirare() {
   function chiudiModo(): void {
     setModoGiro(false);
     setScelte(new Set());
+    setMotivo('');
+    setCercaAnt('');
   }
 
   async function invia(): Promise<void> {
     const ids = [...scelte].filter((id) => scegliibili.has(id));
     if (!ids.length) return;
-    setOccupato(true);
     setErrAzione(null);
     setEsito(null);
+    if (nAnticipate > 0 && !motivo.trim()) {
+      setErrAzione('Per ritirare cavallette in anticipo scrivi il motivo (resta nel registro).');
+      return;
+    }
+    setOccupato(true);
     try {
-      await programmaGiro(ids);
+      await programmaGiro(ids, nAnticipate > 0 ? motivo.trim() : undefined);
       setEsito(`Giro programmato: ${ids.length} ${ids.length === 1 ? 'cavalletta' : 'cavallette'}. Dopo ${oreGiro} ore tornano vuote in piazzale.`);
       chiudiModo();
       await ricarica();
@@ -149,7 +172,7 @@ export default function DaRitirare() {
         sotto={`Dal cliente da almeno ${soglia} giorni lavorativi, divise per provincia: presumibilmente vuote. Con «Programma giro di raccolta» l'autista sceglie quelle che va a recuperare.`}
         azioni={
           <>
-            {puoProgrammare && !modoGiro && (righe.length > 0 || inArrivo.length > 0) && (
+            {puoProgrammare && !modoGiro && (righe.length > 0 || inArrivo.length > 0 || anticipate.length > 0) && (
               <button className="btn btn-primary" onClick={() => setModoGiro(true)}>Programma giro di raccolta</button>
             )}
             {righe.length > 0 && <button className="btn" onClick={() => void copia()}>{copiato ? 'Copiato!' : 'Copia elenco'}</button>}
@@ -260,11 +283,46 @@ export default function DaRitirare() {
         </>
       )}
 
+      {modoGiro && anticipate.length > 0 && (
+        <>
+          <h2>Ritiro anticipato <span className="sotto">· caso eccezionale, prima dei {soglia} giorni lavorativi</span></h2>
+          <div className="toolbar">
+            <input className="cerca" placeholder="Cerca per numero, cliente, commessa…" value={cercaAnt} onChange={(e) => setCercaAnt(e.target.value)} />
+          </div>
+          <div className="scorri">
+            <table className="tabella">
+              <thead>
+                <tr><th /><th>N.</th><th>Provincia</th><th>Cliente</th><th>Commessa</th><th>Giorni lav.</th></tr>
+              </thead>
+              <tbody>
+                {anticipateVisibili.map(({ c, giorni }) => (
+                  <tr key={c.id} className={scelte.has(c.id) ? 'riga-scelta' : ''}>
+                    <Spunta c={c} />
+                    <td className="numero col-numero">{c.numero}</td>
+                    <td>{provinciaDa(c.indirizzo)}</td>
+                    <td>{c.cliente}</td>
+                    <td>{c.commessa}</td>
+                    <td className="num">{giorni}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
       {modoGiro && (
         <div className="barra-riepilogo">
           <div>
             <strong>{nScelte} {nScelte === 1 ? 'cavalletta selezionata' : 'cavallette selezionate'}</strong>
-            <div className="sotto">Diventano grigie e dopo {oreGiro} ore rientrano vuote in piazzale.</div>
+            {nAnticipate > 0 ? (
+              <label className="form">
+                Motivo del ritiro anticipato ({nAnticipate} {nAnticipate === 1 ? 'cavalletta' : 'cavallette'} prima dei {soglia} giorni)
+                <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="es. il cliente ha finito, serve la cavalletta" />
+              </label>
+            ) : (
+              <div className="sotto">Diventano grigie e dopo {oreGiro} ore rientrano vuote in piazzale.</div>
+            )}
           </div>
           <div className="riga-bottoni">
             <button className="btn btn-primary" disabled={nScelte === 0 || occupato} onClick={() => void invia()}>{occupato ? 'Invio…' : 'Invia giro'}</button>

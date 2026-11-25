@@ -221,8 +221,8 @@ export async function eliminaCavalletta(id: string, motivo?: string): Promise<vo
 }
 
 // ---------- giro di raccolta, consegna, produzione ----------
-export async function programmaGiro(ids: string[]): Promise<void> {
-  ok(await supabase.rpc('programma_giro', { p_ids: ids }));
+export async function programmaGiro(ids: string[], motivo?: string): Promise<void> {
+  ok(await supabase.rpc('programma_giro', { p_ids: ids, p_motivo: motivo ?? null }));
 }
 
 export async function annullaGiro(ids: string[]): Promise<void> {

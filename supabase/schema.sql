@@ -484,7 +484,8 @@ do $$ begin
 end $$;
 
 -- ---------- GIRO DI RACCOLTA -----------------------------------------
-create or replace function public.programma_giro(p_ids uuid[]) returns int
+drop function if exists public.programma_giro(uuid[]);
+create or replace function public.programma_giro(p_ids uuid[], p_motivo text default null) returns int
 language plpgsql security definer set search_path = public as $$
 declare v_ids uuid[]; v_ok int;
 begin
@@ -493,9 +494,11 @@ begin
   if cardinality(v_ids) = 0 then raise exception 'Nessuna cavalletta selezionata'; end if;
   select count(*) into v_ok from cavallette where id = any (v_ids) and not restituita and luogo = 'cliente' and in_giro_il is null;
   if v_ok <> cardinality(v_ids) then raise exception 'Alcune cavallette non sono dal cliente oppure sono già in un giro di raccolta'; end if;
+  -- il motivo (ritiro anticipato) finisce nel registro movimenti
+  perform set_config('app.motivo', coalesce(nullif(trim(p_motivo), ''), ''), true);
   update cavallette set in_giro_il = now() where id = any (v_ids);
   insert into eventi (cavalletta_id, tipo, dettaglio, utente)
-  select id, 'giro_programmato', jsonb_build_object('commessa', commessa, 'cliente', cliente), auth.uid() from cavallette where id = any (v_ids);
+  select id, 'giro_programmato', jsonb_strip_nulls(jsonb_build_object('commessa', commessa, 'cliente', cliente, 'motivo', nullif(trim(p_motivo), ''))), auth.uid() from cavallette where id = any (v_ids);
   return cardinality(v_ids);
 end $$;
 
@@ -622,10 +625,10 @@ begin
   if not found then raise exception 'Cavalletta non trovata'; end if;
 end $$;
 
-revoke all on function public.programma_giro(uuid[]), public.annulla_giro(uuid[]), public.chiudi_giri_scaduti(),
+revoke all on function public.programma_giro(uuid[], text), public.annulla_giro(uuid[]), public.chiudi_giri_scaduti(),
   public.consegna_cavallette(text, text, uuid[]), public.imballa_cavallette(text, text, text, text[]),
   public.correggi_cavalletta(uuid, jsonb, text), public.elimina_cavalletta(uuid, text) from public, anon;
-grant execute on function public.programma_giro(uuid[]), public.annulla_giro(uuid[]), public.chiudi_giri_scaduti(),
+grant execute on function public.programma_giro(uuid[], text), public.annulla_giro(uuid[]), public.chiudi_giri_scaduti(),
   public.consegna_cavallette(text, text, uuid[]), public.imballa_cavallette(text, text, text, text[]),
   public.correggi_cavalletta(uuid, jsonb, text), public.elimina_cavalletta(uuid, text) to authenticated;
 
