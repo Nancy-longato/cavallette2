@@ -3,6 +3,7 @@ import { cercaCommessa, imballa } from '../lib/api.ts';
 import { useDati } from '../lib/dati.tsx';
 import { chiaveDaCodice, confrontaNumeri, trovaNumero } from '../lib/keys.ts';
 import { Info, Messaggio, Titolo } from '../components/ui.tsx';
+import { CARICHI, nomiCarico } from '../lib/types.ts';
 
 export default function Produzione() {
   const { cavallette, vetrerie, nomeVetreria, errore, ricarica } = useDati();
@@ -13,6 +14,7 @@ export default function Produzione() {
   const [vetreria, setVetreria] = useState('');
   const [codice, setCodice] = useState('');
   const [scelte, setScelte] = useState<string[]>([]);
+  const [carico, setCarico] = useState<string[]>(['serramenti']);
   const [occupato, setOccupato] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [esito, setEsito] = useState<string | null>(null);
@@ -79,10 +81,14 @@ export default function Produzione() {
       setErr('Scrivi il numero di commessa.');
       return;
     }
+    if (carico.length === 0) {
+      setErr('Scegli cosa carichi sulle cavallette (serramenti, vetri, portoncino, HST, scuri, alluminio).');
+      return;
+    }
     setOccupato(true);
     try {
-      await imballa(commessa.trim(), cliente, indirizzo, scelte);
-      setEsito(`Commessa ${commessa.trim()}: ${scelte.length} ${scelte.length === 1 ? 'cavalletta imballata' : 'cavallette imballate'}. Ora sono in piazzale con i serramenti.`);
+      await imballa(commessa.trim(), cliente, indirizzo, scelte, carico);
+      setEsito(`Commessa ${commessa.trim()}: ${scelte.length} ${scelte.length === 1 ? 'cavalletta pronta' : 'cavallette pronte'} (${nomiCarico(carico).toLowerCase()}), in piazzale.`);
       setScelte([]);
       setCommessa('');
       setCliente('');
@@ -103,7 +109,7 @@ export default function Produzione() {
 
   return (
     <>
-      <Titolo titolo="Produzione: imballo commessa" sotto="Scrivi la commessa, scegli la vetreria e il numero delle cavallette che hai riempito di serramenti." />
+      <Titolo titolo="Produzione: imballo commessa" sotto="Scrivi la commessa, scegli cosa hai caricato (serramenti, solo vetri, portoncino…) e la vetreria e il numero di ogni cavalletta." />
       {errore && <Messaggio tipo="errore">{errore}</Messaggio>}
       {err && <Messaggio tipo="errore">{err}</Messaggio>}
       {esito && <Messaggio tipo="ok">{esito}</Messaggio>}
@@ -125,7 +131,19 @@ export default function Produzione() {
       </div>
 
       <div className="card">
-        <h2>2. Cavallette usate</h2>
+        <h2>2. Cosa carichi</h2>
+        <p className="nota">Si può scegliere più di una voce (es. serramenti + scuri). Per una consegna di soli vetri scegli «Vetri».</p>
+        <div className="chip-lista">
+          {CARICHI.map((c) => (
+            <button key={c.k} className={`chip ${carico.includes(c.k) ? 'chip-scelto' : ''}`} onClick={() => setCarico(carico.includes(c.k) ? carico.filter((x) => x !== c.k) : [...carico, c.k])}>
+              {c.nome}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="card">
+        <h2>3. Cavallette usate</h2>
         <div className="segmenti">
           {vetrerie.map((v) => (
             <button key={v.codice} className={`segmento ${vetreria === v.codice ? 'attivo' : ''}`} onClick={() => setVetreria(vetreria === v.codice ? '' : v.codice)}>
@@ -175,9 +193,9 @@ export default function Produzione() {
           )}
         </div>
         <div className="riga-bottoni">
-          <Info etichetta="Cosa succede all'invio" allineaDestra>Le cavallette risultano «piena di serramenti» in piazzale.</Info>
+          <Info etichetta="Cosa succede all'invio" allineaDestra>Le cavallette risultano piene (con quello che hai indicato) in piazzale, pronte da consegnare.</Info>
           <button className="btn btn-primary btn-big" disabled={scelte.length === 0 || !commessa.trim() || occupato} onClick={() => void invia()}>
-            {occupato ? 'Invio…' : 'Segna come imballate'}
+            {occupato ? 'Invio…' : 'Segna come pronte'}
           </button>
         </div>
       </div>

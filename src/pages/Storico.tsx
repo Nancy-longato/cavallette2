@@ -6,12 +6,13 @@ import { normalizzaChiave } from '../lib/keys.ts';
 import { useDati } from '../lib/dati.tsx';
 import CavallettaDialog from '../components/CavallettaDialog.tsx';
 import { Badge, Messaggio, Titolo, dataOra } from '../components/ui.tsx';
+import { nomiCarico } from '../lib/types.ts';
 import type { Tono } from '../components/ui.tsx';
 
 export const NOMI_MOVIMENTO: Record<string, string> = {
   carico: 'Carico: arrivo dalla vetreria',
   carico_interna: 'Carico: cavalletta Longato',
-  imballata: 'Imballata (serramenti)',
+  imballata: 'Cavalletta caricata (pronta per il cliente)',
   consegna: 'Consegna al cliente',
   giro_programmato: 'Giro di raccolta programmato',
   giro_annullato: 'Giro di raccolta annullato',
@@ -31,7 +32,7 @@ const TONO: Record<string, Tono> = {
 const ENTRATE = new Set(['carico', 'carico_interna']);
 const NOMI_CAMPO: Record<string, string> = {
   luogo: 'luogo', stato: 'stato', commessa: 'commessa', cliente: 'cliente', indirizzo: 'indirizzo', note: 'note', contenuto: 'contenuto',
-  data_consegna: 'dal cliente da', data_uscita: 'data uscita', ddt_consegna: 'DDT consegna', in_giro_il: 'giro di raccolta',
+  carico: 'carico', data_consegna: 'dal cliente da', data_uscita: 'data uscita', ddt_consegna: 'DDT consegna', in_giro_il: 'giro di raccolta',
 };
 
 function cambi(m: MovimentoRegistro): string {
@@ -167,6 +168,7 @@ function Registro() {
                           <td>{oraRoma(m.creato_il)}</td>
                           <td>
                             <Badge tono={TONO[m.tipo] ?? 'grigio'}>{NOMI_MOVIMENTO[m.tipo] ?? m.tipo}</Badge>
+                            {Array.isArray(m.dettaglio.carico) && <div className="sotto">Carico: {nomiCarico(m.dettaglio.carico as string[])}</div>}
                             {cambi(m) && <div className="sotto">{cambi(m)}</div>}
                             {typeof m.dettaglio.motivo === 'string' && <div className="sotto">Motivo: {m.dettaglio.motivo}</div>}
                           </td>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { CARICHI } from '../lib/types.ts';
 import type { Cavalletta, Evento, Luogo, Stato } from '../lib/types.ts';
 import { caricaEventi, correggiCavalletta, eliminaCavalletta } from '../lib/api.ts';
 import { formattaData } from '../lib/dates.ts';
@@ -61,6 +62,7 @@ export default function CavallettaDialog({ cavalletta: c, onChiudi, onModificata
     data_consegna: c.data_consegna ?? '',
     ddt_consegna: c.ddt_consegna ?? '',
     note: c.note ?? '',
+    carico: (c.carico ?? []) as string[],
   });
   const [motivo, setMotivo] = useState('');
 
@@ -82,6 +84,13 @@ export default function CavallettaDialog({ cavalletta: c, onChiudi, onModificata
   const gg = giacenza(c, oggi);
   const cant = giorniInCantiere(c, oggi, chiusure);
 
+  /** Cambio di luogo/stato: se diventa vuota in piazzale si svuotano anche commessa, cliente, indirizzo e date */
+  function cambia(mod: Partial<typeof f>): void {
+    const n = { ...f, ...mod };
+    if (n.stato === 'vuota' && n.luogo === 'piazzale') Object.assign(n, { commessa: '', cliente: '', indirizzo: '', data_consegna: '', ddt_consegna: '', carico: [] });
+    setF(n);
+  }
+
   async function salva(): Promise<void> {
     setErrore(null);
     setOccupato(true);
@@ -96,6 +105,7 @@ export default function CavallettaDialog({ cavalletta: c, onChiudi, onModificata
         data_consegna: vuoto(f.data_consegna),
         ddt_consegna: vuoto(f.ddt_consegna),
         note: vuoto(f.note),
+        carico: f.stato === 'piena_serramenti' && f.carico.length ? f.carico : null,
       };
       if (patch.stato === 'vuota') patch.contenuto = null;
       await correggiCavalletta(c, patch, motivo.trim() || undefined);
@@ -149,18 +159,29 @@ export default function CavallettaDialog({ cavalletta: c, onChiudi, onModificata
           <div className="form">
             <p className="nota">Correzione manuale: resta nel registro movimenti, segnata come «modificato a mano», con il tuo nome.</p>
             <label>Luogo
-              <select value={f.luogo} onChange={(e) => setF({ ...f, luogo: e.target.value as Luogo })}>
+              <select value={f.luogo} onChange={(e) => cambia({ luogo: e.target.value as Luogo })}>
                 <option value="piazzale">Piazzale</option>
                 <option value="cliente">Dal cliente</option>
               </select>
             </label>
             <label>Stato
-              <select value={f.stato} onChange={(e) => setF({ ...f, stato: e.target.value as Stato })}>
+              <select value={f.stato} onChange={(e) => cambia({ stato: e.target.value as Stato })}>
                 <option value="piena_vetri">Piena (vetri)</option>
-                <option value="piena_serramenti">Piena (serramenti)</option>
+                <option value="piena_serramenti">Piena (per un cliente)</option>
                 <option value="vuota">Vuota</option>
               </select>
             </label>
+            {f.stato === 'piena_serramenti' && (
+              <div className="form">
+                <span>Cosa c'è sopra</span>
+                <div className="chip-lista">
+                  {CARICHI.map((x) => (
+                    <button key={x.k} type="button" className={`chip ${f.carico.includes(x.k) ? 'chip-scelto' : ''}`} onClick={() => setF({ ...f, carico: f.carico.includes(x.k) ? f.carico.filter((k) => k !== x.k) : [...f.carico, x.k] })}>{x.nome}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {f.stato === 'vuota' && f.luogo === 'piazzale' && <p className="nota">Vuota in piazzale: commessa, cliente, indirizzo e date vengono cancellati.</p>}
             <label>Commessa<input value={f.commessa} onChange={(e) => setF({ ...f, commessa: e.target.value })} /></label>
             <label>Cliente<input value={f.cliente} onChange={(e) => setF({ ...f, cliente: e.target.value })} /></label>
             <label>Indirizzo<input value={f.indirizzo} onChange={(e) => setF({ ...f, indirizzo: e.target.value })} /></label>

@@ -99,7 +99,7 @@ function cav(parziale: Partial<Cavalletta>): Cavalletta {
     id: 'x', numero: 'P1', vetreria: 'P', etichetta: null, contenuto: null, data_arrivo: null, ddt_arrivo: null,
     luogo: 'piazzale', stato: 'vuota', commessa: null, cliente: null, indirizzo: null, data_uscita: null,
     data_consegna: null, note: null, restituita: false, restituita_il: null, restituzione_id: null,
-    in_giro_il: null, stato_dal: '2026-11-03', ddt_consegna: null, creata_il: '', aggiornata_il: '', ...parziale,
+    carico: null, in_giro_il: null, stato_dal: '2026-11-03', ddt_consegna: null, creata_il: '', aggiornata_il: '', ...parziale,
   };
 }
 

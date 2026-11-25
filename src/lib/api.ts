@@ -211,7 +211,7 @@ export async function correggiCavalletta(prima: Cavalletta, patch: Partial<Caval
   const cambi: Record<string, { da: unknown; a: unknown }> = {};
   for (const [k, v] of Object.entries(patch)) {
     const vecchio = (prima as unknown as Record<string, unknown>)[k];
-    if (vecchio !== v) cambi[k] = { da: vecchio, a: v };
+    if (JSON.stringify(vecchio) !== JSON.stringify(v)) cambi[k] = { da: vecchio, a: v };
   }
   ok(await supabase.from('eventi').insert({ cavalletta_id: prima.id, tipo: 'correzione', dettaglio: { cambi } }));
 }
@@ -242,8 +242,8 @@ export async function consegna(commessa: string, ddt: string, ids: string[]): Pr
   ok(await supabase.rpc('consegna_cavallette', { p_commessa: commessa, p_ddt: ddt, p_ids: ids }));
 }
 
-export async function imballa(commessa: string, cliente: string, indirizzo: string, numeri: string[]): Promise<void> {
-  ok(await supabase.rpc('imballa_cavallette', { p_commessa: commessa, p_cliente: cliente, p_indirizzo: indirizzo, p_numeri: numeri }));
+export async function imballa(commessa: string, cliente: string, indirizzo: string, numeri: string[], carico: string[]): Promise<void> {
+  ok(await supabase.rpc('imballa_cavallette', { p_commessa: commessa, p_cliente: cliente, p_indirizzo: indirizzo, p_numeri: numeri, p_carico: carico }));
 }
 
 export async function cercaCommessa(commessa: string): Promise<Commessa | null> {

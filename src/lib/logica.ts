@@ -1,3 +1,4 @@
+import { nomiCarico } from './types.ts';
 import type { Cavalletta } from './types.ts';
 import { LONGATO } from './types.ts';
 import { diffDays, giorniLavorativiTra, oggiRoma } from './dates.ts';
@@ -31,7 +32,7 @@ export type Step = 'vetri' | 'serramenti_piazzale' | 'dal_cliente' | 'in_giro' |
 
 export const NOMI_STEP: Record<Step, string> = {
   vetri: 'Piena di vetri',
-  serramenti_piazzale: 'Serramenti in piazzale',
+  serramenti_piazzale: 'Pronta in piazzale',
   dal_cliente: 'Dal cliente',
   in_giro: 'In giro di raccolta',
   vuota: 'Vuota in piazzale',
@@ -70,7 +71,7 @@ export function etichettaStato(c: Cavalletta, inAllerta: boolean): string {
   if (inGiro(c)) return 'In ritiro (giro)';
   if (inAllerta) return 'Vuota (da ritirare)';
   if (c.stato === 'piena_vetri') return 'Piena (vetri)';
-  if (c.stato === 'piena_serramenti') return 'Piena (serramenti)';
+  if (c.stato === 'piena_serramenti') return c.carico?.length ? `Piena: ${nomiCarico(c.carico).toLowerCase()}` : 'Piena (serramenti)';
   return 'Vuota';
 }
 

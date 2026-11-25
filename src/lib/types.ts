@@ -35,6 +35,7 @@ export interface Cavalletta {
   restituita: boolean;
   restituita_il: string | null;
   restituzione_id: string | null;
+  carico: string[] | null; // cosa c'è sulla cavalletta per la commessa: vetri, serramenti, portoncino, hst, scuri, alluminio
   in_giro_il: string | null; // giro di raccolta programmato: grigia finché non passano le ore
   stato_dal: string; // YYYY-MM-DD: da quando è nello step attuale
   ddt_consegna: string | null;
@@ -109,4 +110,18 @@ export interface MovimentoRegistro {
   utente_ruolo: string | null;
   manuale: boolean;
   dettaglio: Record<string, unknown>;
+}
+
+/** Cosa si può caricare su una cavalletta per un cliente */
+export const CARICHI: { k: string; nome: string }[] = [
+  { k: 'serramenti', nome: 'Serramenti' },
+  { k: 'vetri', nome: 'Vetri' },
+  { k: 'portoncino', nome: 'Portoncino' },
+  { k: 'hst', nome: 'HST' },
+  { k: 'scuri', nome: 'Scuri' },
+  { k: 'alluminio', nome: 'Serramenti in alluminio' },
+];
+
+export function nomiCarico(carico: string[] | null | undefined): string {
+  return (carico ?? []).map((k) => CARICHI.find((c) => c.k === k)?.nome ?? k).join(', ');
 }

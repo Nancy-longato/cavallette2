@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { consegna } from '../lib/api.ts';
 import { useAuth } from '../lib/auth.tsx';
 import { useDati } from '../lib/dati.tsx';
+import { nomiCarico } from '../lib/types.ts';
 import { confrontaNumeri } from '../lib/keys.ts';
 import { formattaData } from '../lib/dates.ts';
 import { Badge, Messaggio, Titolo } from '../components/ui.tsx';
@@ -105,7 +106,7 @@ export default function DaConsegnare() {
         for (const id of ids) n.delete(id);
         return n;
       });
-      setEsito(`Commessa ${g.commessa}: ${ids.length} ${ids.length === 1 ? 'cavalletta consegnata' : 'cavallette consegnate'} (DDT ${d}) il ${formattaData(oggi)}. Ora risultano dal cliente con i serramenti.`);
+      setEsito(`Commessa ${g.commessa}: ${ids.length} ${ids.length === 1 ? 'cavalletta consegnata' : 'cavallette consegnate'} (DDT ${d}) il ${formattaData(oggi)}. Ora risultano dal cliente.`);
       await ricarica();
     } catch (e) {
       setErrAzione(e instanceof Error ? e.message : 'Errore');
@@ -180,6 +181,7 @@ export default function DaConsegnare() {
                         <input type="checkbox" checked={spuntata} disabled={!pronta} onChange={() => alterna(c.id)} />
                         <span className="numero">{c.numero}</span>
                         <span className="nota">{nomeVetreria(c.vetreria)}</span>
+                        {c.carico?.length ? <span className="nota">{nomiCarico(c.carico)}</span> : null}
                         {pronta ? (
                           <Badge tono="blu">In piazzale</Badge>
                         ) : (

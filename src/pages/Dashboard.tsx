@@ -63,7 +63,7 @@ export default function Dashboard() {
   const schede: { f: Filtro; titolo: string; classe?: string }[] = [
     { f: 'tutti', titolo: 'In sede / in giro' },
     { f: 'vetri', titolo: 'Piene di vetri' },
-    { f: 'serramenti_piazzale', titolo: 'Serramenti in piazzale' },
+    { f: 'serramenti_piazzale', titolo: 'Pronte in piazzale' },
     { f: 'cliente', titolo: 'Dal cliente' },
     { f: 'in_giro', titolo: 'In ritiro (giro)' },
     { f: 'vuote', titolo: 'Vuote in piazzale' },
@@ -74,7 +74,7 @@ export default function Dashboard() {
     <>
       <Titolo
         titolo="Cruscotto cavallette"
-        sotto="Situazione in tempo reale e da quanti giorni ogni cavalletta è ferma nel suo step (vetri, serramenti in piazzale, dal cliente, vuota). Clicca una riga per vedere lo storico."
+        sotto="Situazione in tempo reale e da quanti giorni ogni cavalletta è ferma nel suo step (vetri, pronta in piazzale, dal cliente, vuota). Clicca una riga per vedere lo storico."
         azioni={<button className="btn" onClick={() => void ricarica()}>Aggiorna</button>}
       />
       {errore && <Messaggio tipo="errore">{errore}</Messaggio>}
